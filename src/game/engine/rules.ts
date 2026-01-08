@@ -1,0 +1,119 @@
+import type { Card, Rank } from '../types';
+
+// Rank values for adjacency checking (A=1, J=11, Q=12, K=13)
+const RANK_VALUES: Record<Rank, number> = {
+  'A': 1,
+  '2': 2,
+  '3': 3,
+  '4': 4,
+  '5': 5,
+  '6': 6,
+  '7': 7,
+  '8': 8,
+  '9': 9,
+  '10': 10,
+  'J': 11,
+  'Q': 12,
+  'K': 13,
+  'JOKER': 0, // Special case
+};
+
+/**
+ * Check if two ranks are adjacent (wrap-around enabled)
+ * A is adjacent to K and 2
+ * K is adjacent to Q and A
+ */
+export function isAdjacent(rank1: Rank, rank2: Rank): boolean {
+  // Jokers are always adjacent to everything
+  if (rank1 === 'JOKER' || rank2 === 'JOKER') {
+    return true;
+  }
+
+  const val1 = RANK_VALUES[rank1];
+  const val2 = RANK_VALUES[rank2];
+
+  const diff = Math.abs(val1 - val2);
+
+  // Adjacent if difference is 1, or wrap-around (K-A = 12)
+  return diff === 1 || diff === 12;
+}
+
+/**
+ * Check if a card can be played on a pile
+ */
+export function canPlay(card: Card, pileTop: Card): boolean {
+  // Joker card can always be played (wild)
+  if (card.rank === 'JOKER') {
+    return true;
+  }
+
+  // Joker on top means any card can be played (free space)
+  if (pileTop.rank === 'JOKER') {
+    return true;
+  }
+
+  // Check adjacency
+  return isAdjacent(card.rank, pileTop.rank);
+}
+
+/**
+ * Get all legal pile indices for a card
+ */
+export function getLegalPiles(card: Card, centerPiles: Card[][]): number[] {
+  const legalPiles: number[] = [];
+
+  for (let i = 0; i < centerPiles.length; i++) {
+    const pile = centerPiles[i];
+    if (pile.length > 0) {
+      const topCard = pile[pile.length - 1];
+      if (canPlay(card, topCard)) {
+        legalPiles.push(i);
+      }
+    }
+  }
+
+  return legalPiles;
+}
+
+/**
+ * Check if a player has any legal hand plays
+ */
+export function hasLegalHandPlay(hand: Card[], centerPiles: Card[][]): boolean {
+  for (const card of hand) {
+    if (getLegalPiles(card, centerPiles).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Get rank display string
+ */
+export function getRankDisplay(rank: Rank): string {
+  if (rank === 'JOKER') return '★';
+  return rank;
+}
+
+/**
+ * Get suit symbol
+ */
+export function getSuitSymbol(suit: string | null): string {
+  switch (suit) {
+    case 'hearts': return '♥';
+    case 'diamonds': return '♦';
+    case 'clubs': return '♣';
+    case 'spades': return '♠';
+    default: return '';
+  }
+}
+
+/**
+ * Get card color (red or black)
+ */
+export function getCardColor(card: Card): 'red' | 'black' | 'gold' {
+  if (card.rank === 'JOKER') return 'gold';
+  if (card.suit === 'hearts' || card.suit === 'diamonds') return 'red';
+  return 'black';
+}
+
