@@ -39,6 +39,9 @@ interface CardLayerProps {
   // Theme props
   myTheme: CardTheme;
   opponentTheme: CardTheme;
+  // Dealing animation - cards that have been dealt (show them), others stay at deck
+  dealtCards?: Set<string>;
+  isDealing?: boolean;
 }
 
 export function CardLayer({
@@ -53,6 +56,8 @@ export function CardLayer({
   hiddenCardIds = [],
   myTheme,
   opponentTheme,
+  dealtCards,
+  isDealing = false,
 }: CardLayerProps) {
   const cardPositions: CardPosition[] = [];
   let zCounter = 0;
@@ -61,6 +66,7 @@ export function CardLayer({
   const suitColors = {
     clubsSpades: myTheme.primary.solid,
     heartsDiamonds: myTheme.secondary.solid,
+    joker: myTheme.neutral.solid,
   };
 
   // Calculate positions for player 2 (opponent) hand - partially hidden at top
@@ -224,42 +230,60 @@ export function CardLayer({
 
   return (
     <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-      {visiblePositions.map((pos) => (
-        <motion.div
-          key={pos.card.id}
-          layoutId={pos.card.id}
-          className="absolute pointer-events-auto"
-          initial={false}
-          animate={{
-            x: pos.x - 32,
-            y: pos.y - 48,
-            rotate: pos.rotation,
-            rotateY: pos.faceUp ? 0 : 180,
-            scale: pos.isSelected ? 1.05 : 1,
-          }}
-          transition={{
-            type: 'spring',
-            stiffness: 300,
-            damping: 30,
-            rotateY: { type: 'spring', stiffness: 200, damping: 20 },
-          }}
-          style={{ 
-            zIndex: pos.zIndex + (pos.isSelected ? 1000 : 0),
-            perspective: 1000,
-          }}
-          onClick={() => handleCardClick(pos)}
-        >
-          <Card
-            card={pos.card}
-            faceUp={pos.faceUp}
-            isSelected={pos.isSelected}
-            isDimmed={pos.isDimmed}
-            isHighlighted={pos.isSelectable && pos.location === 'pile'}
-            backColor={pos.backColor}
-            suitColors={suitColors}
-          />
-        </motion.div>
-      ))}
+      {visiblePositions.map((pos) => {
+        // During dealing, check if this card has been dealt yet
+        const hasBeenDealt = !dealtCards || dealtCards.has(pos.card.id);
+        const showAtDeck = isDealing && !hasBeenDealt;
+        
+        // Cards not yet dealt start at deck position
+        const targetX = showAtDeck ? layout.deckPos.x - 32 : pos.x - 32;
+        const targetY = showAtDeck ? layout.deckPos.y - 48 : pos.y - 48;
+        const targetRotation = showAtDeck ? 0 : pos.rotation;
+        const showFaceUp = showAtDeck ? false : pos.faceUp;
+        
+        return (
+          <motion.div
+            key={pos.card.id}
+            layoutId={pos.card.id}
+            className="absolute pointer-events-auto"
+            initial={isDealing ? {
+              x: layout.deckPos.x - 32,
+              y: layout.deckPos.y - 48,
+              rotate: 0,
+              rotateY: 180,
+              scale: 1,
+            } : false}
+            animate={{
+              x: targetX,
+              y: targetY,
+              rotate: targetRotation,
+              rotateY: showFaceUp ? 0 : 180,
+              scale: pos.isSelected ? 1.05 : 1,
+            }}
+            transition={{
+              type: 'spring',
+              stiffness: 350,
+              damping: 28,
+              rotateY: { type: 'spring', stiffness: 200, damping: 20 },
+            }}
+            style={{ 
+              zIndex: showAtDeck ? 1 : pos.zIndex + (pos.isSelected ? 1000 : 0),
+              perspective: 1000,
+            }}
+            onClick={isDealing ? undefined : () => handleCardClick(pos)}
+          >
+            <Card
+              card={pos.card}
+              faceUp={showFaceUp}
+              isSelected={!isDealing && pos.isSelected}
+              isDimmed={!isDealing && pos.isDimmed}
+              isHighlighted={!isDealing && pos.isSelectable && pos.location === 'pile'}
+              backColor={pos.backColor}
+              suitColors={suitColors}
+            />
+          </motion.div>
+        );
+      })}
     </div>
   );
 }

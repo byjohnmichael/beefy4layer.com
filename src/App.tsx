@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { TitleScreen } from './screens/TitleScreen';
 import { Game, type GameMode } from './screens/Game';
-import { tacoBellTheme, type CardTheme } from './themes/themes';
+import { tacoBellTheme, getThemeById, type CardTheme } from './themes/themes';
+import type { Room } from './lib/multiplayer';
 
 type Screen = 'title' | 'game';
 
@@ -10,25 +11,50 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('title');
   const [gameMode, setGameMode] = useState<GameMode>('singleplayer');
   
-  // Theme state - for now default to Taco Bell theme
-  // In the future, this could be selected on title screen
-  const [myTheme] = useState<CardTheme>(tacoBellTheme);
-  // In singleplayer, opponent uses same theme. In multiplayer, this would come from network.
-  const [opponentTheme] = useState<CardTheme>(tacoBellTheme);
+  // Theme state
+  const [myTheme, setMyTheme] = useState<CardTheme>(tacoBellTheme);
+  
+  // Multiplayer state
+  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const [isHost, setIsHost] = useState(false);
+
+  // Compute opponent theme for multiplayer
+  const getOpponentTheme = (): CardTheme => {
+    if (gameMode === 'singleplayer') {
+      return myTheme; // Same theme in singleplayer
+    }
+    
+    // In multiplayer, get opponent's theme from room data
+    if (currentRoom) {
+      const opponentData = isHost ? currentRoom.guest : currentRoom.host;
+      if (opponentData?.theme_id) {
+        return getThemeById(opponentData.theme_id);
+      }
+    }
+    
+    return myTheme; // Fallback
+  };
 
   const handleStartSingleplayer = () => {
     setGameMode('singleplayer');
+    setCurrentRoom(null);
     setCurrentScreen('game');
   };
 
-  const handleStartMultiplayer = () => {
-    // Multiplayer not implemented yet
+  const handleStartMultiplayer = (room: Room, host: boolean) => {
     setGameMode('multiplayer');
+    setCurrentRoom(room);
+    setIsHost(host);
     setCurrentScreen('game');
   };
 
   const handleExitToTitle = () => {
     setCurrentScreen('title');
+    setCurrentRoom(null);
+  };
+
+  const handleThemeChange = (theme: CardTheme) => {
+    setMyTheme(theme);
   };
 
   return (
@@ -50,6 +76,8 @@ function App() {
             <TitleScreen
               onStartSingleplayer={handleStartSingleplayer}
               onStartMultiplayer={handleStartMultiplayer}
+              selectedTheme={myTheme}
+              onThemeChange={handleThemeChange}
             />
           </motion.div>
         )}
@@ -66,7 +94,9 @@ function App() {
               mode={gameMode} 
               onExit={handleExitToTitle}
               myTheme={myTheme}
-              opponentTheme={opponentTheme}
+              opponentTheme={getOpponentTheme()}
+              room={currentRoom}
+              isHost={isHost}
             />
           </motion.div>
         )}

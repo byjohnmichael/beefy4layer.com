@@ -17,6 +17,7 @@ interface CardProps {
   suitColors?: {
     clubsSpades: string;    // Color for ♣♠
     heartsDiamonds: string; // Color for ♥♦
+    joker?: string;         // Color for Jokers (neutral)
   };
 }
 
@@ -95,10 +96,10 @@ export function Card({
   }
 
   // Card face - determine suit color
-  // Jokers have null suit, so we check for JOKER rank first
+  // Jokers have null suit and use neutral color
   const isBlackSuit = card.suit !== null && (card.suit === 'clubs' || card.suit === 'spades');
   const suitColor = card.rank === 'JOKER' 
-    ? suitColors.heartsDiamonds // Jokers use secondary color
+    ? (suitColors.joker || suitColors.heartsDiamonds) // Jokers use neutral color
     : isBlackSuit 
       ? suitColors.clubsSpades 
       : suitColors.heartsDiamonds;

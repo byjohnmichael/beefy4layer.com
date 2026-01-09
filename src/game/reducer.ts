@@ -285,6 +285,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return newState;
     }
 
+    case 'SET_FIRST_PLAYER': {
+      return {
+        ...state,
+        currentPlayer: action.player,
+      };
+    }
+
+    case 'SYNC_STATE': {
+      // Replace entire state with synced state from server
+      return action.state;
+    }
+
     default:
       return state;
   }

@@ -36,5 +36,7 @@ export type GameAction =
   | { type: 'SELECT_FACEDOWN_CARD'; index: number }
   | { type: 'SELECT_PILE'; pileIndex: number }
   | { type: 'CLEAR_SELECTIONS' }
-  | { type: 'DRAW_FROM_DECK' };
+  | { type: 'DRAW_FROM_DECK' }
+  | { type: 'SET_FIRST_PLAYER'; player: PlayerId }
+  | { type: 'SYNC_STATE'; state: GameState };
 

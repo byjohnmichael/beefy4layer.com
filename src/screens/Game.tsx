@@ -8,8 +8,10 @@ import { CardLayer } from '../components/CardLayer';
 import { Card } from '../components/Card';
 import { TurnIndicator } from '../components/TurnIndicator';
 import { WinOverlay } from '../components/WinOverlay';
-import type { Card as CardType } from '../game/types';
+import type { Card as CardType, PlayerId } from '../game/types';
 import type { CardTheme } from '../themes/themes';
+import type { Room } from '../lib/multiplayer';
+import { subscribeToRoom, updateGameState, endGame } from '../lib/multiplayer';
 
 export type GameMode = 'singleplayer' | 'multiplayer';
 
@@ -18,6 +20,8 @@ interface GameProps {
   onExit: () => void;
   myTheme: CardTheme;        // Your selected theme
   opponentTheme: CardTheme;  // Opponent's theme (same as yours in singleplayer)
+  room?: Room | null;        // Room data for multiplayer
+  isHost?: boolean;          // Are we the host in multiplayer?
 }
 
 interface LayoutPositions {
@@ -53,21 +57,45 @@ type FaceDownPlayAnimation = {
   replacementCard: CardType | null;
 };
 
-export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
-  const [state, dispatch] = useReducer(gameReducer, null, createInitialState);
+type GamePhase = 'dealing' | 'coinFlip' | 'playing';
+
+export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true }: GameProps) {
+  // For multiplayer, use the room's game state if available
+  const initialState = mode === 'multiplayer' && room?.game_state 
+    ? room.game_state 
+    : createInitialState();
+  
+  const [state, dispatch] = useReducer(gameReducer, initialState);
   
   // Bot is only active in singleplayer mode
   const isBotEnabled = mode === 'singleplayer';
+  
+  // Multiplayer: determine which player we are
+  // Host = P1, Guest = P2
+  const myPlayerId: PlayerId = mode === 'multiplayer' ? (isHost ? 'P1' : 'P2') : 'P1';
+  const isMyTurn = state.currentPlayer === myPlayerId;
 
   // Suit colors for face-up cards (always your theme)
   const suitColors = {
     clubsSpades: myTheme.primary.solid,
     heartsDiamonds: myTheme.secondary.solid,
+    joker: myTheme.neutral.solid,
   };
+  
+  // Track if we need to sync state to server
+  const lastSyncedStateRef = useRef<string>('');
+  const isProcessingRemoteUpdate = useRef(false);
   const [layout, setLayout] = useState<LayoutPositions | null>(null);
   const [drawAnimation, setDrawAnimation] = useState<DrawAnimation | null>(null);
   const [pendingDraw, setPendingDraw] = useState<{ target: 'p1' | 'p2' } | null>(null);
   const [faceDownPlay, setFaceDownPlay] = useState<FaceDownPlayAnimation | null>(null);
+  
+  // Game intro animation state
+  // In multiplayer, skip dealing animation since game state is already set
+  const [gamePhase, setGamePhase] = useState<GamePhase>(mode === 'multiplayer' ? 'playing' : 'dealing');
+  const [dealtCards, setDealtCards] = useState<Set<string>>(new Set());
+  const [coinFlipResult, setCoinFlipResult] = useState<'P1' | 'P2' | null>(null);
+  const [coinFlipAnimating, setCoinFlipAnimating] = useState(false);
   
   // Refs for measuring positions
   const deckRef = useRef<HTMLDivElement>(null);
@@ -136,6 +164,127 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
     return () => clearTimeout(timer);
   }, [state.players.P1.faceDown, state.players.P2.faceDown, measureLayout]);
 
+  // === MULTIPLAYER SYNC ===
+  // Subscribe to room updates in multiplayer
+  useEffect(() => {
+    if (mode !== 'multiplayer' || !room) return;
+
+    const unsubscribe = subscribeToRoom(room.id, (updatedRoom) => {
+      if (updatedRoom.game_state && !isProcessingRemoteUpdate.current) {
+        const remoteStateStr = JSON.stringify(updatedRoom.game_state);
+        
+        // Only update if state is different and we didn't just send this update
+        if (remoteStateStr !== lastSyncedStateRef.current) {
+          isProcessingRemoteUpdate.current = true;
+          
+          // Apply the remote state by resetting and replaying
+          // For simplicity, we dispatch a special action to replace state
+          dispatch({ type: 'SYNC_STATE', state: updatedRoom.game_state } as any);
+          
+          lastSyncedStateRef.current = remoteStateStr;
+          
+          setTimeout(() => {
+            isProcessingRemoteUpdate.current = false;
+          }, 100);
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [mode, room?.id]);
+
+  // Sync local state changes to server in multiplayer
+  useEffect(() => {
+    if (mode !== 'multiplayer' || !room || isProcessingRemoteUpdate.current) return;
+    
+    const stateStr = JSON.stringify(state);
+    
+    // Don't sync if this is the same state we just received
+    if (stateStr === lastSyncedStateRef.current) return;
+    
+    // Only sync if it's our turn changing to opponent's turn (we made a move)
+    // or if game just ended
+    const shouldSync = !isMyTurn || state.winner !== null;
+    
+    if (shouldSync && gamePhase === 'playing') {
+      lastSyncedStateRef.current = stateStr;
+      
+      const nextPlayer = state.currentPlayer === 'P1' ? 'host' : 'guest';
+      
+      if (state.winner) {
+        endGame(room.id, state);
+      } else {
+        updateGameState(room.id, state, nextPlayer as 'host' | 'guest');
+      }
+    }
+  }, [mode, room?.id, state, isMyTurn, gamePhase]);
+
+  // === DEALING ANIMATION ===
+  // Start dealing animation once layout is measured
+  useEffect(() => {
+    if (gamePhase !== 'dealing' || !layout) return;
+
+    // Build the deal sequence:
+    // 1. Deal 4 face-up cards to center piles
+    // 2. Alternate dealing face-down cards (P1, P2, P1, P2, P1, P2)
+    const dealSequence: { id: string; delay: number }[] = [];
+    let delay = 300; // Initial delay
+    const cardDelay = 120; // Time between each card
+
+    // Face-up cards to piles
+    state.centerPiles.forEach((pile) => {
+      if (pile.length > 0) {
+        dealSequence.push({ id: pile[0].id, delay });
+        delay += cardDelay;
+      }
+    });
+
+    // Face-down cards alternating
+    const p1FaceDown = state.players.P1.faceDown.filter(c => c !== null) as CardType[];
+    const p2FaceDown = state.players.P2.faceDown.filter(c => c !== null) as CardType[];
+    const maxFaceDown = Math.max(p1FaceDown.length, p2FaceDown.length);
+    
+    for (let i = 0; i < maxFaceDown; i++) {
+      if (p1FaceDown[i]) {
+        dealSequence.push({ id: p1FaceDown[i].id, delay });
+        delay += cardDelay;
+      }
+      if (p2FaceDown[i]) {
+        dealSequence.push({ id: p2FaceDown[i].id, delay });
+        delay += cardDelay;
+      }
+    }
+
+    // Schedule each card to be dealt
+    dealSequence.forEach(({ id, delay: cardDelay }) => {
+      setTimeout(() => {
+        setDealtCards(prev => new Set([...prev, id]));
+      }, cardDelay);
+    });
+
+    // After all cards dealt, start coin flip
+    setTimeout(() => {
+      setGamePhase('coinFlip');
+      setCoinFlipAnimating(true);
+      
+      // Coin flip animation duration
+      setTimeout(() => {
+        // Randomly determine first player
+        const firstPlayer = Math.random() < 0.5 ? 'P1' : 'P2';
+        setCoinFlipResult(firstPlayer);
+        setCoinFlipAnimating(false);
+        
+        // After coin settles, start the game
+        setTimeout(() => {
+          setGamePhase('playing');
+          // Set the first player in game state
+          dispatch({ type: 'SET_FIRST_PLAYER', player: firstPlayer });
+        }, 800);
+      }, 1500); // Coin flip duration
+    }, delay + 500);
+
+  }, [gamePhase, layout, state.centerPiles, state.players.P1.faceDown, state.players.P2.faceDown, state.currentPlayer]);
+
   const triggerDrawAnimation = useCallback((target: 'p1' | 'p2') => {
     if (!layout || drawAnimation || state.deck.length === 0) return;
     
@@ -203,59 +352,59 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
     });
   }, [layout, faceDownPlay, state]);
 
-  // Bot AI
+  // Bot AI - acts instantly after initial delay
   const executeBotMove = useCallback(() => {
     if (state.currentPlayer !== 'P2' || state.winner || drawAnimation || faceDownPlay) return;
 
-    const thinkTime = 800 + Math.random() * 600;
-
-    setTimeout(() => {
-      if (state.selectedCard) {
-        const pileAction = getBotPileSelection(state);
-        if (pileAction && pileAction.type === 'SELECT_PILE') {
-          // Check if this is a face-down play - trigger animation
-          if (state.selectedCard.source === 'faceDown') {
-            triggerFaceDownPlayAnimation(state.selectedCard.index, pileAction.pileIndex, 'P2');
-            dispatch({ type: 'CLEAR_SELECTIONS' });
-          } else {
-            dispatch(pileAction);
-          }
-        }
-      } else {
-        const action = getBotMove(state);
-        if (action) {
-          // If bot is drawing, trigger animation
-          if (action.type === 'DRAW_FROM_DECK') {
-            triggerDrawAnimation('p2');
-          } else {
-            dispatch(action);
-          }
+    if (state.selectedCard) {
+      const pileAction = getBotPileSelection(state);
+      if (pileAction && pileAction.type === 'SELECT_PILE') {
+        // Check if this is a face-down play - trigger animation
+        if (state.selectedCard.source === 'faceDown') {
+          triggerFaceDownPlayAnimation(state.selectedCard.index, pileAction.pileIndex, 'P2');
+          dispatch({ type: 'CLEAR_SELECTIONS' });
+        } else {
+          dispatch(pileAction);
         }
       }
-    }, thinkTime);
+    } else {
+      const action = getBotMove(state);
+      if (action) {
+        // If bot is drawing, trigger animation
+        if (action.type === 'DRAW_FROM_DECK') {
+          triggerDrawAnimation('p2');
+        } else {
+          dispatch(action);
+        }
+      }
+    }
   }, [state, drawAnimation, faceDownPlay, triggerDrawAnimation, triggerFaceDownPlayAnimation]);
 
   useEffect(() => {
+    // Only allow bot moves during playing phase
+    if (gamePhase !== 'playing') return;
     if (isBotEnabled && state.currentPlayer === 'P2' && !state.winner && !drawAnimation && !faceDownPlay) {
       const timer = setTimeout(executeBotMove, 500);
       return () => clearTimeout(timer);
     }
-  }, [isBotEnabled, state.currentPlayer, state.winner, state.selectedCard, drawAnimation, faceDownPlay, executeBotMove]);
+  }, [gamePhase, isBotEnabled, state.currentPlayer, state.winner, state.selectedCard, drawAnimation, faceDownPlay, executeBotMove]);
 
   const handleSelectHandCard = (index: number) => {
-    if (state.currentPlayer !== 'P1') return;
+    if (!isMyTurn) return;
     dispatch({ type: 'SELECT_HAND_CARD', index });
   };
 
   const handleSelectFaceDownCard = (index: number) => {
-    if (state.currentPlayer !== 'P1') return;
+    if (!isMyTurn) return;
     dispatch({ type: 'SELECT_FACEDOWN_CARD', index });
   };
 
   const handleSelectPile = (pileIndex: number) => {
+    if (!isMyTurn) return;
+    
     // Check if this is a face-down card play - intercept for animation
     if (state.selectedCard?.source === 'faceDown' && layout && !faceDownPlay) {
-      triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, state.currentPlayer);
+      triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, myPlayerId);
       dispatch({ type: 'CLEAR_SELECTIONS' });
       return;
     }
@@ -351,11 +500,13 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
   }, [faceDownPlay]);
 
   const handleDrawFromDeck = () => {
-    if (state.currentPlayer !== 'P1' || drawAnimation) return;
-    triggerDrawAnimation('p1');
+    if (!isMyTurn || drawAnimation) return;
+    // In multiplayer, use perspective-aware target
+    const drawTarget = myPlayerId === 'P1' ? 'p1' : 'p2';
+    triggerDrawAnimation(drawTarget as 'p1' | 'p2');
   };
 
-  const isPlayerTurn = state.currentPlayer === 'P1';
+  const isPlayerTurn = isMyTurn;
   const hasSelection = state.selectedCard !== null;
   const canDraw = isPlayerTurn && !hasSelection && !state.winner && state.deck.length > 0 && !drawAnimation;
 
@@ -419,9 +570,15 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
                   </div>
                 </>
               )}
+              {/* Card count badge */}
+              <div 
+                className="absolute -bottom-2 -right-2 min-w-6 h-6 px-1.5 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-xs font-bold text-white/90"
+              >
+                {state.deck.length}
+              </div>
               {canDraw && (
                 <div 
-                  className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs whitespace-nowrap"
+                  className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs whitespace-nowrap"
                   style={{ color: myTheme.secondary.solid }}
                 >
                   Draw
@@ -474,14 +631,27 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
         {/* Turn indicator chip */}
         <motion.div
           className="absolute w-14 h-14 flex items-center justify-center"
-          style={{ left: 'calc(50% + 170px)' }}
-          animate={{ top: isPlayerTurn ? 'calc(100% - 236px)' : '100px' }}
-          transition={{ type: 'spring', stiffness: 100, damping: 18, mass: 1 }}
+          style={{ 
+            left: 'calc(50% + 170px)', // Always to the right of piles
+          }}
+          animate={{ 
+            top: gamePhase === 'playing' 
+              ? (isPlayerTurn ? 'calc(100% - 236px)' : '100px')
+              : 'calc(50% - 28px)', // Centered vertically during dealing/coinFlip
+            rotate: coinFlipAnimating ? 1080 : 0, // Spin during coin flip
+          }}
+          transition={{ 
+            top: { type: 'spring', stiffness: 100, damping: 18, mass: 1 },
+            rotate: { duration: 1.5, ease: [0.4, 0, 0.2, 1] },
+          }}
         >
           <TurnIndicator 
-            currentPlayer={state.currentPlayer}
+            currentPlayer={gamePhase === 'playing' ? state.currentPlayer : (coinFlipResult || 'P1')}
             p1Color={myTheme.primary}
             p2Color={opponentTheme.secondary}
+            neutralColor={myTheme.neutral}
+            isFlipping={coinFlipAnimating}
+            showNeutral={gamePhase === 'dealing'}
           />
         </motion.div>
       </div>
@@ -503,6 +673,8 @@ export function Game({ mode, onExit, myTheme, opponentTheme }: GameProps) {
           ].filter((id): id is string => !!id)}
           myTheme={myTheme}
           opponentTheme={opponentTheme}
+          dealtCards={dealtCards}
+          isDealing={gamePhase === 'dealing'}
         />
       )}
 
