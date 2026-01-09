@@ -1,22 +1,23 @@
 import { motion } from 'framer-motion';
 import type { PlayerId } from '../game/types';
+import type { ThemeColor } from '../themes/themes';
 
 interface TurnIndicatorProps {
   currentPlayer: PlayerId;
+  p1Color: ThemeColor;  // Your theme's primary
+  p2Color: ThemeColor;  // Opponent's theme's secondary
 }
 
-export function TurnIndicator({ currentPlayer }: TurnIndicatorProps) {
+export function TurnIndicator({ currentPlayer, p1Color, p2Color }: TurnIndicatorProps) {
   const isPlayerTurn = currentPlayer === 'P1';
   
-  // Colors for the chip
-  const primaryColor = isPlayerTurn ? '#3b82f6' : '#ef4444';
-  const secondaryColor = isPlayerTurn ? '#1d4ed8' : '#b91c1c';
-  const accentColor = isPlayerTurn ? '#60a5fa' : '#f87171';
+  // Use the appropriate player's color
+  const activeColor = isPlayerTurn ? p1Color : p2Color;
   
   return (
     <motion.div
       animate={{
-        y: isPlayerTurn ? 0 : 0, // Will be controlled by parent positioning
+        y: isPlayerTurn ? 0 : 0, // Controlled by parent positioning
       }}
       transition={{
         type: 'spring',
@@ -32,8 +33,8 @@ export function TurnIndicator({ currentPlayer }: TurnIndicatorProps) {
           cx="28"
           cy="28"
           r="26"
-          fill={primaryColor}
-          stroke={secondaryColor}
+          fill={activeColor.solid}
+          stroke="rgba(0,0,0,0.3)"
           strokeWidth="2"
         />
         
@@ -58,17 +59,17 @@ export function TurnIndicator({ currentPlayer }: TurnIndicatorProps) {
           cy="28"
           r="20"
           fill="none"
-          stroke={accentColor}
+          stroke="rgba(255,255,255,0.4)"
           strokeWidth="2"
           strokeDasharray="4 4"
         />
         
-        {/* Center circle */}
+        {/* Center circle - darker shade */}
         <circle
           cx="28"
           cy="28"
           r="14"
-          fill={secondaryColor}
+          fill="rgba(0,0,0,0.2)"
         />
         
         {/* Inner highlight */}
@@ -76,7 +77,7 @@ export function TurnIndicator({ currentPlayer }: TurnIndicatorProps) {
           cx="28"
           cy="28"
           r="10"
-          fill={primaryColor}
+          fill={activeColor.solid}
         />
         
         {/* Center icon */}
@@ -95,8 +96,9 @@ export function TurnIndicator({ currentPlayer }: TurnIndicatorProps) {
       <div 
         className="absolute inset-0 rounded-full blur-md -z-10"
         style={{
-          background: primaryColor,
-          opacity: 0.4,
+          background: activeColor.solid,
+          opacity: 0.5,
+          boxShadow: `0 0 20px ${activeColor.glow}`,
         }}
       />
     </motion.div>

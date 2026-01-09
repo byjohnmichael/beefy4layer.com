@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { Card as CardType } from '../game/types';
-import { getRankDisplay, getSuitSymbol, getCardColor } from '../game/engine/rules';
+import { getRankDisplay, getSuitSymbol } from '../game/engine/rules';
+import type { ThemeColor } from '../themes/themes';
 
 interface CardProps {
   card: CardType | null;
@@ -11,7 +12,25 @@ interface CardProps {
   isDimmed?: boolean;
   size?: 'normal' | 'small';
   className?: string;
+  // Theme colors
+  backColor?: ThemeColor;  // Color for card back
+  suitColors?: {
+    clubsSpades: string;    // Color for ♣♠
+    heartsDiamonds: string; // Color for ♥♦
+  };
 }
+
+// Default colors (fallback if no theme provided)
+const defaultBackColor: ThemeColor = {
+  gradient: 'linear-gradient(135deg, #2d5a7b 0%, #1a3d5c 100%)',
+  solid: '#2d5a7b',
+  glow: 'rgba(45, 90, 123, 0.5)',
+};
+
+const defaultSuitColors = {
+  clubsSpades: '#1a1a1a',
+  heartsDiamonds: '#dc2626',
+};
 
 export function Card({
   card,
@@ -22,6 +41,8 @@ export function Card({
   isDimmed = false,
   size = 'normal',
   className = '',
+  backColor = defaultBackColor,
+  suitColors = defaultSuitColors,
 }: CardProps) {
   const sizeClasses = size === 'normal' 
     ? 'w-16 h-24 text-xl' 
@@ -32,7 +53,7 @@ export function Card({
     transition-all duration-200
     ${sizeClasses}
     ${isSelected ? 'ring-3 ring-yellow-400 ring-offset-2 ring-offset-transparent' : ''}
-    ${isHighlighted ? 'ring-2 ring-emerald-400 animate-pulse' : ''}
+    ${isHighlighted ? 'ring-2 ring-pink-400 animate-pulse' : ''}
     ${isDimmed ? 'opacity-40 cursor-not-allowed' : ''}
     ${onClick && !isDimmed ? 'hover:scale-105' : ''}
   `;
@@ -46,8 +67,8 @@ export function Card({
         whileHover={onClick && !isDimmed ? { y: -4 } : {}}
         whileTap={onClick && !isDimmed ? { scale: 0.95 } : {}}
         style={{
-          background: 'linear-gradient(135deg, #2d5a7b 0%, #1a3d5c 100%)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          background: backColor.gradient,
+          boxShadow: `0 4px 12px ${backColor.glow}`,
         }}
       >
         <div className="absolute inset-1 rounded border border-white/20">
@@ -59,23 +80,29 @@ export function Card({
                   45deg,
                   transparent,
                   transparent 4px,
-                  rgba(255,255,255,0.05) 4px,
-                  rgba(255,255,255,0.05) 8px
+                  rgba(255,255,255,0.08) 4px,
+                  rgba(255,255,255,0.08) 8px
                 )
               `,
             }}
           />
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-2xl opacity-30">♠</span>
+            <span className="text-2xl opacity-40" style={{ color: 'white' }}>♠</span>
           </div>
         </div>
       </motion.div>
     );
   }
 
-  // Card face
-  const color = getCardColor(card);
-  const textColor = color === 'red' ? 'text-red-600' : color === 'gold' ? 'text-amber-500' : 'text-gray-900';
+  // Card face - determine suit color
+  // Jokers have null suit, so we check for JOKER rank first
+  const isBlackSuit = card.suit !== null && (card.suit === 'clubs' || card.suit === 'spades');
+  const suitColor = card.rank === 'JOKER' 
+    ? suitColors.heartsDiamonds // Jokers use secondary color
+    : isBlackSuit 
+      ? suitColors.clubsSpades 
+      : suitColors.heartsDiamonds;
+  
   const rankDisplay = getRankDisplay(card.rank);
   const suitSymbol = getSuitSymbol(card.suit);
 
@@ -92,7 +119,10 @@ export function Card({
       }}
     >
       {/* Corner rank/suit - top left */}
-      <div className={`absolute top-1 left-1.5 flex flex-col items-center leading-none ${textColor}`}>
+      <div 
+        className="absolute top-1 left-1.5 flex flex-col items-center leading-none"
+        style={{ color: suitColor }}
+      >
         <span className="font-bold" style={{ fontSize: size === 'normal' ? '0.875rem' : '0.75rem' }}>
           {rankDisplay}
         </span>
@@ -102,7 +132,10 @@ export function Card({
       </div>
 
       {/* Center suit */}
-      <div className={`absolute inset-0 flex items-center justify-center ${textColor}`}>
+      <div 
+        className="absolute inset-0 flex items-center justify-center"
+        style={{ color: suitColor }}
+      >
         {card.rank === 'JOKER' ? (
           <span className="text-3xl">★</span>
         ) : (
@@ -111,7 +144,10 @@ export function Card({
       </div>
 
       {/* Corner rank/suit - bottom right (inverted) */}
-      <div className={`absolute bottom-1 right-1.5 flex flex-col items-center leading-none rotate-180 ${textColor}`}>
+      <div 
+        className="absolute bottom-1 right-1.5 flex flex-col items-center leading-none rotate-180"
+        style={{ color: suitColor }}
+      >
         <span className="font-bold" style={{ fontSize: size === 'normal' ? '0.875rem' : '0.75rem' }}>
           {rankDisplay}
         </span>
@@ -129,11 +165,15 @@ export function FlipCard({
   isFlipped,
   onClick,
   isSelected = false,
+  backColor,
+  suitColors,
 }: {
   card: CardType;
   isFlipped: boolean;
   onClick?: () => void;
   isSelected?: boolean;
+  backColor?: ThemeColor;
+  suitColors?: { clubsSpades: string; heartsDiamonds: string };
 }) {
   return (
     <div className="relative w-16 h-24" style={{ perspective: '1000px' }}>
@@ -149,7 +189,13 @@ export function FlipCard({
           className="absolute inset-0"
           style={{ backfaceVisibility: 'hidden' }}
         >
-          <Card card={null} faceUp={false} onClick={onClick} isSelected={isSelected} />
+          <Card 
+            card={null} 
+            faceUp={false} 
+            onClick={onClick} 
+            isSelected={isSelected}
+            backColor={backColor}
+          />
         </div>
 
         {/* Front face */}
@@ -157,10 +203,9 @@ export function FlipCard({
           className="absolute inset-0"
           style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
-          <Card card={card} faceUp={true} />
+          <Card card={card} faceUp={true} suitColors={suitColors} />
         </div>
       </motion.div>
     </div>
   );
 }
-

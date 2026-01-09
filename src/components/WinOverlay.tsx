@@ -4,9 +4,10 @@ import type { PlayerId } from '../game/types';
 interface WinOverlayProps {
   winner: PlayerId | null;
   onPlayAgain: () => void;
+  onExit?: () => void;
 }
 
-export function WinOverlay({ winner, onPlayAgain }: WinOverlayProps) {
+export function WinOverlay({ winner, onPlayAgain, onExit }: WinOverlayProps) {
   return (
     <AnimatePresence>
       {winner && (
@@ -66,22 +67,41 @@ export function WinOverlay({ winner, onPlayAgain }: WinOverlayProps) {
               ✨ 🎉 ✨
             </motion.div>
 
-            {/* Play again button */}
-            <motion.button
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={onPlayAgain}
-              className="w-full py-4 px-8 rounded-xl font-bold text-lg transition-all"
-              style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 4px 20px rgba(16, 185, 129, 0.4)',
-              }}
-            >
-              Play Again
-            </motion.button>
+            {/* Buttons */}
+            <div className="flex flex-col gap-3">
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={onPlayAgain}
+                className="w-full py-4 px-8 rounded-xl font-bold text-lg transition-all text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  boxShadow: '0 4px 20px rgba(16, 185, 129, 0.4)',
+                }}
+              >
+                Play Again
+              </motion.button>
+
+              {onExit && (
+                <motion.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={onExit}
+                  className="w-full py-3 px-8 rounded-xl font-bold text-base transition-all text-gray-300 border border-gray-600 hover:border-gray-500"
+                  style={{
+                    background: 'transparent',
+                  }}
+                >
+                  Main Menu
+                </motion.button>
+              )}
+            </div>
           </motion.div>
         </motion.div>
       )}
