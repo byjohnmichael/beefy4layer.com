@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import type { Card as CardType, GameState } from '../game/types';
+import type { Card as CardType, GameState, PlayerId } from '../game/types';
 import { Card } from './Card';
 import { getLegalPiles } from '../game/engine/rules';
 import type { CardTheme, ThemeColor } from '../themes/themes';
@@ -42,6 +42,8 @@ interface CardLayerProps {
   // Dealing animation - cards that have been dealt (show them), others stay at deck
   dealtCards?: Set<string>;
   isDealing?: boolean;
+  // Perspective: which player ID is "me" (renders at bottom)
+  myPlayerId?: PlayerId;
 }
 
 export function CardLayer({
@@ -58,6 +60,7 @@ export function CardLayer({
   opponentTheme,
   dealtCards,
   isDealing = false,
+  myPlayerId = 'P1',
 }: CardLayerProps) {
   const cardPositions: CardPosition[] = [];
   let zCounter = 0;
@@ -69,18 +72,32 @@ export function CardLayer({
     joker: myTheme.neutral.solid,
   };
 
-  // Calculate positions for player 2 (opponent) hand - partially hidden at top
-  const p2Hand = state.players.P2.hand;
-  const p2HandCount = p2Hand.length;
-  p2Hand.forEach((card, index) => {
+  // Determine which player's cards go where based on perspective
+  // "Me" always renders at bottom, "Opponent" at top
+  const myPlayer = state.players[myPlayerId];
+  const opponentPlayerId = myPlayerId === 'P1' ? 'P2' : 'P1';
+  const opponentPlayer = state.players[opponentPlayerId];
+
+  // Layout positions from perspective
+  // My cards use bottom positions (p1HandCenter, p1FaceDownCenter)
+  // Opponent cards use top positions (p2HandCenter, p2FaceDownCenter)
+  const myHandCenter = layout.p1HandCenter;
+  const myFaceDownCenter = layout.p1FaceDownCenter;
+  const opponentHandCenter = layout.p2HandCenter;
+  const opponentFaceDownCenter = layout.p2FaceDownCenter;
+
+  // Calculate positions for OPPONENT hand - partially hidden at top
+  const opponentHand = opponentPlayer.hand;
+  const opponentHandCount = opponentHand.length;
+  opponentHand.forEach((card, index) => {
     const spacing = 50;
-    const totalWidth = (p2HandCount - 1) * spacing;
-    const startX = layout.p2HandCenter.x - totalWidth / 2;
+    const totalWidth = (opponentHandCount - 1) * spacing;
+    const startX = opponentHandCenter.x - totalWidth / 2;
 
     cardPositions.push({
       card,
       x: startX + index * spacing,
-      y: layout.p2HandCenter.y,
+      y: opponentHandCenter.y,
       rotation: 0,
       faceUp: false,
       zIndex: zCounter++,
@@ -89,18 +106,18 @@ export function CardLayer({
       isSelectable: false,
       isSelected: false,
       isDimmed: false,
-      backColor: opponentTheme.secondary, // Opponent's cards use their theme's secondary
+      backColor: opponentTheme.secondary, // Opponent's cards use secondary color
     });
   });
 
-  // Calculate positions for player 1 hand
-  const p1Hand = state.players.P1.hand;
-  const p1HandCount = p1Hand.length;
-  p1Hand.forEach((card, index) => {
-    const maxRotation = Math.min(p1HandCount * 3, 25);
-    const normalizedPos = p1HandCount === 1 ? 0 : (index / (p1HandCount - 1)) * 2 - 1;
+  // Calculate positions for MY hand (bottom, face up, selectable)
+  const myHand = myPlayer.hand;
+  const myHandCount = myHand.length;
+  myHand.forEach((card, index) => {
+    const maxRotation = Math.min(myHandCount * 3, 25);
+    const normalizedPos = myHandCount === 1 ? 0 : (index / (myHandCount - 1)) * 2 - 1;
     const rotation = normalizedPos * maxRotation;
-    const horizontalSpread = normalizedPos * Math.min(p1HandCount * 25, 150);
+    const horizontalSpread = normalizedPos * Math.min(myHandCount * 25, 150);
     const lift = -Math.abs(normalizedPos) * 15 + 15;
     
     const hasLegalPlay = getLegalPiles(card, state.centerPiles).length > 0;
@@ -108,8 +125,8 @@ export function CardLayer({
 
     cardPositions.push({
       card,
-      x: layout.p1HandCenter.x + horizontalSpread,
-      y: layout.p1HandCenter.y - lift + (isSelected ? -20 : 0),
+      x: myHandCenter.x + horizontalSpread,
+      y: myHandCenter.y - lift + (isSelected ? -20 : 0),
       rotation,
       faceUp: true,
       zIndex: zCounter++,
@@ -118,28 +135,28 @@ export function CardLayer({
       isSelectable: isPlayerTurn && hasLegalPlay && !state.winner,
       isSelected,
       isDimmed: isPlayerTurn && !hasLegalPlay && !selectedCard,
-      backColor: myTheme.primary, // Your cards use your theme's primary
+      backColor: myTheme.primary, // My cards use primary color
     });
   });
 
-  // Calculate positions for player 1 face-down
-  const p1FaceDown = state.players.P1.faceDown.filter(c => c !== null) as CardType[];
-  const p1FDCount = p1FaceDown.length;
-  let p1FDIndex = 0;
-  state.players.P1.faceDown.forEach((card, originalIndex) => {
+  // Calculate positions for MY face-down cards
+  const myFaceDown = myPlayer.faceDown.filter(c => c !== null) as CardType[];
+  const myFDCount = myFaceDown.length;
+  let myFDIndex = 0;
+  myPlayer.faceDown.forEach((card, originalIndex) => {
     if (card === null) return;
     
     const spacing = 76;
-    const totalWidth = (p1FDCount - 1) * spacing;
-    const startX = layout.p1FaceDownCenter.x - totalWidth / 2;
+    const totalWidth = (myFDCount - 1) * spacing;
+    const startX = myFaceDownCenter.x - totalWidth / 2;
     
     const isSelected = isPlayerTurn && selectedCard?.source === 'faceDown' && selectedCard.index === originalIndex;
     const canSelect = isPlayerTurn && !state.winner && (!selectedCard || selectedCard.source === 'faceDown');
 
     cardPositions.push({
       card,
-      x: startX + p1FDIndex * spacing,
-      y: layout.p1FaceDownCenter.y + (isSelected ? -8 : 0),
+      x: startX + myFDIndex * spacing,
+      y: myFaceDownCenter.y + (isSelected ? -8 : 0),
       rotation: 0,
       faceUp: false,
       zIndex: zCounter++,
@@ -148,26 +165,26 @@ export function CardLayer({
       isSelectable: canSelect,
       isSelected,
       isDimmed: false,
-      backColor: myTheme.primary, // Your face-down cards use your theme's primary
+      backColor: myTheme.primary, // My face-down cards use primary
     });
-    p1FDIndex++;
+    myFDIndex++;
   });
 
-  // Calculate positions for player 2 face-down (opponent)
-  const p2FaceDown = state.players.P2.faceDown.filter(c => c !== null) as CardType[];
-  const p2FDCount = p2FaceDown.length;
-  let p2FDIndex = 0;
-  state.players.P2.faceDown.forEach((card, originalIndex) => {
+  // Calculate positions for OPPONENT face-down cards (top)
+  const opponentFaceDown = opponentPlayer.faceDown.filter(c => c !== null) as CardType[];
+  const opponentFDCount = opponentFaceDown.length;
+  let opponentFDIndex = 0;
+  opponentPlayer.faceDown.forEach((card, originalIndex) => {
     if (card === null) return;
     
     const spacing = 76;
-    const totalWidth = (p2FDCount - 1) * spacing;
-    const startX = layout.p2FaceDownCenter.x - totalWidth / 2;
+    const totalWidth = (opponentFDCount - 1) * spacing;
+    const startX = opponentFaceDownCenter.x - totalWidth / 2;
 
     cardPositions.push({
       card,
-      x: startX + p2FDIndex * spacing,
-      y: layout.p2FaceDownCenter.y,
+      x: startX + opponentFDIndex * spacing,
+      y: opponentFaceDownCenter.y,
       rotation: 0,
       faceUp: false,
       zIndex: zCounter++,
@@ -176,9 +193,9 @@ export function CardLayer({
       isSelectable: false,
       isSelected: false,
       isDimmed: false,
-      backColor: opponentTheme.secondary, // Opponent's face-down use their secondary
+      backColor: opponentTheme.secondary, // Opponent's face-down use secondary
     });
-    p2FDIndex++;
+    opponentFDIndex++;
   });
 
   // Calculate positions for center piles (only top card visible)
@@ -187,8 +204,9 @@ export function CardLayer({
     
     const topCard = pile[pile.length - 1];
     const pos = layout.pilePositions[pileIndex];
+    // Use MY hand for legal pile checking (since I'm the one making moves)
     const isLegal = selectedCard ? 
-      (selectedCard.source === 'faceDown' || getLegalPiles(state.players.P1.hand[selectedCard.index], state.centerPiles).includes(pileIndex))
+      (selectedCard.source === 'faceDown' || getLegalPiles(myPlayer.hand[selectedCard.index], state.centerPiles).includes(pileIndex))
       : false;
     const hasSelection = selectedCard !== null && isPlayerTurn;
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { TitleScreen } from './screens/TitleScreen';
 import { Game, type GameMode } from './screens/Game';
-import { tacoBellTheme, getThemeById, type CardTheme } from './themes/themes';
+import { tacoBellTheme, type CardTheme } from './themes/themes';
 import type { Room } from './lib/multiplayer';
 
 type Screen = 'title' | 'game';
@@ -18,22 +18,9 @@ function App() {
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [isHost, setIsHost] = useState(false);
 
-  // Compute opponent theme for multiplayer
-  const getOpponentTheme = (): CardTheme => {
-    if (gameMode === 'singleplayer') {
-      return myTheme; // Same theme in singleplayer
-    }
-    
-    // In multiplayer, get opponent's theme from room data
-    if (currentRoom) {
-      const opponentData = isHost ? currentRoom.guest : currentRoom.host;
-      if (opponentData?.theme_id) {
-        return getThemeById(opponentData.theme_id);
-      }
-    }
-    
-    return myTheme; // Fallback
-  };
+  // For simplicity, opponent always uses your secondary color for their card backs
+  // This avoids confusion and doesn't require fetching opponent's theme
+  const opponentTheme = myTheme; // Uses myTheme.secondary for opponent card backs
 
   const handleStartSingleplayer = () => {
     setGameMode('singleplayer');
@@ -94,7 +81,7 @@ function App() {
               mode={gameMode} 
               onExit={handleExitToTitle}
               myTheme={myTheme}
-              opponentTheme={getOpponentTheme()}
+              opponentTheme={opponentTheme}
               room={currentRoom}
               isHost={isHost}
             />

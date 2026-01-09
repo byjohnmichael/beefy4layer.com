@@ -404,7 +404,8 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
     
     // Check if this is a face-down card play - intercept for animation
     if (state.selectedCard?.source === 'faceDown' && layout && !faceDownPlay) {
-      triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, myPlayerId);
+      // Always use 'P1' for animation since my cards are at bottom (P1 position) in perspective mode
+      triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, 'P1');
       dispatch({ type: 'CLEAR_SELECTIONS' });
       return;
     }
@@ -501,9 +502,8 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
 
   const handleDrawFromDeck = () => {
     if (!isMyTurn || drawAnimation) return;
-    // In multiplayer, use perspective-aware target
-    const drawTarget = myPlayerId === 'P1' ? 'p1' : 'p2';
-    triggerDrawAnimation(drawTarget as 'p1' | 'p2');
+    // Always animate to bottom (p1 position) since that's where MY hand is rendered
+    triggerDrawAnimation('p1');
   };
 
   const isPlayerTurn = isMyTurn;
@@ -636,7 +636,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
           }}
           animate={{ 
             top: gamePhase === 'playing' 
-              ? (isPlayerTurn ? 'calc(100% - 236px)' : '100px')
+              ? (isMyTurn ? 'calc(100% - 236px)' : '100px')  // My turn = bottom, opponent = top
               : 'calc(50% - 28px)', // Centered vertically during dealing/coinFlip
             rotate: coinFlipAnimating ? 1080 : 0, // Spin during coin flip
           }}
@@ -646,7 +646,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
           }}
         >
           <TurnIndicator 
-            currentPlayer={gamePhase === 'playing' ? state.currentPlayer : (coinFlipResult || 'P1')}
+            currentPlayer={gamePhase === 'playing' ? (isMyTurn ? 'P1' : 'P2') : (coinFlipResult || 'P1')}
             p1Color={myTheme.primary}
             p2Color={opponentTheme.secondary}
             neutralColor={myTheme.neutral}
@@ -675,6 +675,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
           opponentTheme={opponentTheme}
           dealtCards={dealtCards}
           isDealing={gamePhase === 'dealing'}
+          myPlayerId={myPlayerId}
         />
       )}
 
