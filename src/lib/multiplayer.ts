@@ -378,7 +378,7 @@ export function subscribeToRoom(
         table: 'rooms',
         filter: `id=eq.${roomId}`,
       },
-      async (payload) => {
+      async (_payload) => {
         // Fetch full room data with player info
         const { data } = await supabase
           .from('rooms')
