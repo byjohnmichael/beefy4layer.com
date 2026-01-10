@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { TitleScreen } from './screens/TitleScreen';
 import { Game, type GameMode } from './screens/Game';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { tacoBellTheme, type CardTheme } from './themes/themes';
 import type { Room } from './lib/multiplayer';
 
@@ -35,10 +36,18 @@ function App() {
     setCurrentScreen('game');
   };
 
+  // Use a key to force remount when resetting after error
+  const [gameKey, setGameKey] = useState(0);
+  
   const handleExitToTitle = () => {
     setCurrentScreen('title');
     setCurrentRoom(null);
   };
+  
+  const handleGameReset = useCallback(() => {
+    // Increment key to force remount of Game component
+    setGameKey(k => k + 1);
+  }, []);
 
   const handleThemeChange = (theme: CardTheme) => {
     setMyTheme(theme);
@@ -77,14 +86,17 @@ function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <Game 
-              mode={gameMode} 
-              onExit={handleExitToTitle}
-              myTheme={myTheme}
-              opponentTheme={opponentTheme}
-              room={currentRoom}
-              isHost={isHost}
-            />
+            <ErrorBoundary onReset={handleGameReset}>
+              <Game 
+                key={gameKey}
+                mode={gameMode} 
+                onExit={handleExitToTitle}
+                myTheme={myTheme}
+                opponentTheme={opponentTheme}
+                room={currentRoom}
+                isHost={isHost}
+              />
+            </ErrorBoundary>
           </motion.div>
         )}
       </AnimatePresence>

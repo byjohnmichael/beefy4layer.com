@@ -41,7 +41,13 @@ export function isAdjacent(rank1: Rank, rank2: Rank): boolean {
 /**
  * Check if a card can be played on a pile
  */
-export function canPlay(card: Card, pileTop: Card): boolean {
+export function canPlay(card: Card | undefined | null, pileTop: Card | undefined | null): boolean {
+  // Safety check - if either card is missing, can't play
+  if (!card || !pileTop) {
+    console.warn('[canPlay] Missing card or pileTop:', { card, pileTop });
+    return false;
+  }
+  
   // Joker card can always be played (wild)
   if (card.rank === 'JOKER') {
     return true;
@@ -59,7 +65,13 @@ export function canPlay(card: Card, pileTop: Card): boolean {
 /**
  * Get all legal pile indices for a card
  */
-export function getLegalPiles(card: Card, centerPiles: Card[][]): number[] {
+export function getLegalPiles(card: Card | undefined | null, centerPiles: Card[][]): number[] {
+  // Safety check - if card is missing, no legal piles
+  if (!card) {
+    console.warn('[getLegalPiles] Card is undefined or null');
+    return [];
+  }
+  
   const legalPiles: number[] = [];
 
   for (let i = 0; i < centerPiles.length; i++) {

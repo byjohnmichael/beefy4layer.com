@@ -204,10 +204,20 @@ export function CardLayer({
     
     const topCard = pile[pile.length - 1];
     const pos = layout.pilePositions[pileIndex];
+    if (!pos) return; // Safety check
+    
     // Use MY hand for legal pile checking (since I'm the one making moves)
-    const isLegal = selectedCard ? 
-      (selectedCard.source === 'faceDown' || getLegalPiles(myPlayer.hand[selectedCard.index], state.centerPiles).includes(pileIndex))
-      : false;
+    let isLegal = false;
+    if (selectedCard) {
+      if (selectedCard.source === 'faceDown') {
+        isLegal = true; // Face-down can play on any pile
+      } else if (selectedCard.source === 'hand') {
+        const selectedHandCard = myPlayer.hand[selectedCard.index];
+        if (selectedHandCard) {
+          isLegal = getLegalPiles(selectedHandCard, state.centerPiles).includes(pileIndex);
+        }
+      }
+    }
     const hasSelection = selectedCard !== null && isPlayerTurn;
 
     cardPositions.push({
