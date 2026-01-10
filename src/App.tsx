@@ -6,103 +6,103 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { tacoBellTheme, type CardTheme } from './themes/themes';
 import type { Room } from './lib/multiplayer';
 
-
 type Screen = 'title' | 'game';
 
 function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('title');
-  const [gameMode, setGameMode] = useState<GameMode>('singleplayer');
-  
-  // Theme state
-  const [myTheme, setMyTheme] = useState<CardTheme>(tacoBellTheme);
-  
-  // Multiplayer state
-  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
-  const [isHost, setIsHost] = useState(false);
+    const [currentScreen, setCurrentScreen] = useState<Screen>('title');
+    const [gameMode, setGameMode] = useState<GameMode>('singleplayer');
 
-  // For simplicity, opponent always uses your secondary color for their card backs
-  // This avoids confusion and doesn't require fetching opponent's theme
-  const opponentTheme = myTheme; // Uses myTheme.secondary for opponent card backs
+    // Theme state
+    const [myTheme, setMyTheme] = useState<CardTheme>(tacoBellTheme);
 
-  const handleStartSingleplayer = () => {
-    setGameMode('singleplayer');
-    setCurrentRoom(null);
-    setCurrentScreen('game');
-  };
+    // Multiplayer state
+    const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+    const [isHost, setIsHost] = useState(false);
 
-  const handleStartMultiplayer = (room: Room, host: boolean) => {
-    setGameMode('multiplayer');
-    setCurrentRoom(room);
-    setIsHost(host);
-    setCurrentScreen('game');
-  };
+    // For simplicity, opponent always uses your secondary color for their card backs
+    // This avoids confusion and doesn't require fetching opponent's theme
+    const opponentTheme = myTheme; // Uses myTheme.secondary for opponent card backs
 
-  // Use a key to force remount when resetting after error
-  const [gameKey, setGameKey] = useState(0);
-  
-  const handleExitToTitle = () => {
-    setCurrentScreen('title');
-    setCurrentRoom(null);
-  };
-  
-  const handleGameReset = useCallback(() => {
-    // Increment key to force remount of Game component
-    setGameKey(k => k + 1);
-  }, []);
+    const handleStartSingleplayer = () => {
+        setGameMode('singleplayer');
+        setCurrentRoom(null);
+        setCurrentScreen('game');
+    };
 
-  const handleThemeChange = (theme: CardTheme) => {
-    setMyTheme(theme);
-  };
+    const handleStartMultiplayer = (room: Room, host: boolean) => {
+        setGameMode('multiplayer');
+        setCurrentRoom(room);
+        setIsHost(host);
+        setCurrentScreen('game');
+    };
 
-  return (
-    <div 
-      className="min-h-screen"
-      style={{
-        background: 'radial-gradient(ellipse at center, #1a4a3a 0%, #0f2d23 50%, #0a1f18 100%)',
-      }}
-    >
-      <AnimatePresence mode="wait">
-        {currentScreen === 'title' && (
-          <motion.div
-            key="title"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <TitleScreen
-              onStartSingleplayer={handleStartSingleplayer}
-              onStartMultiplayer={handleStartMultiplayer}
-              selectedTheme={myTheme}
-              onThemeChange={handleThemeChange}
-            />
-          </motion.div>
-        )}
+    // Use a key to force remount when resetting after error
+    const [gameKey, setGameKey] = useState(0);
 
-        {currentScreen === 'game' && (
-          <motion.div
-            key="game"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <ErrorBoundary onReset={handleGameReset}>
-              <Game 
-                key={gameKey}
-                mode={gameMode} 
-                onExit={handleExitToTitle}
-                myTheme={myTheme}
-                opponentTheme={opponentTheme}
-                room={currentRoom}
-                isHost={isHost}
-              />
-            </ErrorBoundary>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
+    const handleExitToTitle = () => {
+        setCurrentScreen('title');
+        setCurrentRoom(null);
+    };
+
+    const handleGameReset = useCallback(() => {
+        // Increment key to force remount of Game component
+        setGameKey((k) => k + 1);
+    }, []);
+
+    const handleThemeChange = (theme: CardTheme) => {
+        setMyTheme(theme);
+    };
+
+    return (
+        <div
+            className="min-h-screen"
+            style={{
+                background:
+                    'radial-gradient(ellipse at center, #1a4a3a 0%, #0f2d23 50%, #0a1f18 100%)',
+            }}
+        >
+            <AnimatePresence mode="wait">
+                {currentScreen === 'title' && (
+                    <motion.div
+                        key="title"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <TitleScreen
+                            onStartSingleplayer={handleStartSingleplayer}
+                            onStartMultiplayer={handleStartMultiplayer}
+                            selectedTheme={myTheme}
+                            onThemeChange={handleThemeChange}
+                        />
+                    </motion.div>
+                )}
+
+                {currentScreen === 'game' && (
+                    <motion.div
+                        key="game"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <ErrorBoundary onReset={handleGameReset}>
+                            <Game
+                                key={gameKey}
+                                mode={gameMode}
+                                onExit={handleExitToTitle}
+                                myTheme={myTheme}
+                                opponentTheme={opponentTheme}
+                                room={currentRoom}
+                                isHost={isHost}
+                            />
+                        </ErrorBoundary>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
 }
 
 export default App;
