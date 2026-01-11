@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemePreview } from '../components/ThemePreview';
 import { themes, type CardTheme } from '../themes/themes';
+import { SYMBOLS } from '../game/engine/rules';
 import { getPlayer, registerPlayer, checkUsernameAvailable, updatePlayerTheme, createRoom, joinRoom, leaveRoom, subscribeToRoom, type Player, type Room} from '../lib/multiplayer';
 
 interface TitleScreenProps {
@@ -431,10 +432,10 @@ export function TitleScreen({
                                 animate={{ opacity: 1 }}
                                 transition={{ delay: 0.4 }}
                             >
-                                <span className="text-2xl text-purple-400/60">♠</span>
-                                <span className="text-2xl text-pink-400/60">♥</span>
-                                <span className="text-2xl text-amber-400/60">♦</span>
-                                <span className="text-2xl text-purple-400/60">♣</span>
+                                <span className="text-2xl text-purple-400/60">{SYMBOLS.spade}</span>
+                                <span className="text-2xl text-pink-400/60">{SYMBOLS.heart}</span>
+                                <span className="text-2xl text-amber-400/60">{SYMBOLS.diamond}</span>
+                                <span className="text-2xl text-purple-400/60">{SYMBOLS.club}</span>
                             </motion.div>
                         </motion.div>
 

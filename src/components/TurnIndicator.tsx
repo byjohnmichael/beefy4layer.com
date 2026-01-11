@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import type { PlayerId } from '../game/types';
 import type { ThemeColor } from '../themes/themes';
+import { SYMBOLS } from '../game/engine/rules';
 
 interface TurnIndicatorProps {
     currentPlayer: PlayerId;
@@ -109,7 +110,7 @@ export function TurnIndicator({
                 {/* Center icon - only show when not flipping */}
                 {showIcon && (
                     <text x="28" y="33" textAnchor="middle" fontSize="14" fill="white">
-                        {isPlayerTurn ? '♠' : '♦'}
+                        {isPlayerTurn ? SYMBOLS.spade : SYMBOLS.diamond}
                     </text>
                 )}
 
@@ -123,7 +124,7 @@ export function TurnIndicator({
                         fill="white"
                         fontWeight="bold"
                     >
-                        ★
+                        {SYMBOLS.star}
                     </text>
                 )}
             </svg>

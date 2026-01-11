@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import type { CardTheme } from '../themes/themes';
+import { SYMBOLS } from '../game/engine/rules';
 
 interface ThemePreviewProps {
     theme: CardTheme;
@@ -33,7 +34,7 @@ function FaceDownCard({ gradient, delay = 0 }: { gradient: string; delay?: numbe
             />
             {/* Center spade icon */}
             <div className="absolute inset-0 flex items-center justify-center text-white/40 text-xl">
-                ♠
+                {SYMBOLS.spade}
             </div>
         </motion.div>
     );
@@ -69,7 +70,7 @@ function FaceUpCard({
                 // Joker card
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className="text-2xl" style={{ color: jokerColor }}>
-                        ★
+                        {SYMBOLS.star}
                     </span>
                     <span
                         className="text-[8px] font-bold tracking-tight"
@@ -197,8 +198,8 @@ export function ThemePreview({ theme }: ThemePreviewProps) {
                     Face Up Cards
                 </div>
                 <div className="flex gap-6 justify-center">
-                    <FaceUpCard rank="6" suit="♠" suitColor={theme.primary.solid} delay={0.3} />
-                    <FaceUpCard rank="7" suit="♥" suitColor={theme.secondary.solid} delay={0.4} />
+                    <FaceUpCard rank="6" suit={SYMBOLS.spade} suitColor={theme.primary.solid} delay={0.3} />
+                    <FaceUpCard rank="7" suit={SYMBOLS.heart} suitColor={theme.secondary.solid} delay={0.4} />
                     <FaceUpCard
                         rank=""
                         suit=""

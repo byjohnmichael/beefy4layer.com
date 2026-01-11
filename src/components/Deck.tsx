@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { SYMBOLS } from '../game/engine/rules';
 
 interface DeckProps {
     count: number;
@@ -76,7 +77,7 @@ export function Deck({ count, canDraw = false, onDraw }: DeckProps) {
                                     }}
                                 />
                             </div>
-                            <span className="text-2xl opacity-30 z-10">♠</span>
+                            <span className="text-2xl opacity-30 z-10">{SYMBOLS.spade}</span>
                         </>
                     ) : (
                         <span className="text-gray-500 text-xs">Empty</span>

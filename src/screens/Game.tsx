@@ -2,7 +2,7 @@ import { useReducer, useEffect, useState, useCallback, useRef, useLayoutEffect }
 import { motion, AnimatePresence } from 'framer-motion';
 import { gameReducer } from '../game/reducer';
 import { createInitialState } from '../game/initialState';
-import { getLegalPiles, canPlay } from '../game/engine/rules';
+import { getLegalPiles, canPlay, SYMBOLS } from '../game/engine/rules';
 import { getBotMove, getBotPileSelection } from '../game/bot';
 import { CardLayer } from '../components/CardLayer';
 import { Card } from '../components/Card';
@@ -616,7 +616,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 <>
                                     <div className="absolute inset-1 rounded border border-white/20" />
                                     <div className="w-full h-full flex items-center justify-center">
-                                        <span className="text-2xl opacity-40 text-white">★</span>
+                                        <span className="text-2xl opacity-40 text-white">{SYMBOLS.star}</span>
                                     </div>
                                 </>
                             )}

@@ -100,7 +100,16 @@ export function hasLegalHandPlay(hand: Card[], centerPiles: Card[][]): boolean {
 }
 
 // Unicode Variation Selector-15 forces text rendering instead of emoji on mobile
-const VS15 = '\uFE0E';
+export const VS15 = '\uFE0E';
+
+// Pre-built symbols with VS15 for convenience
+export const SYMBOLS = {
+    spade: '♠' + '\uFE0E',
+    heart: '♥' + '\uFE0E',
+    diamond: '♦' + '\uFE0E',
+    club: '♣' + '\uFE0E',
+    star: '★' + '\uFE0E',
+} as const;
 
 /**
  * Get rank display string

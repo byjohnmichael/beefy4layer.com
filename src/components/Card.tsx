@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import type { Card as CardType } from '../game/types';
-import { getRankDisplay, getSuitSymbol, getBackSymbol } from '../game/engine/rules';
+import { getRankDisplay, getSuitSymbol, getBackSymbol, SYMBOLS } from '../game/engine/rules';
 import type { ThemeColor } from '../themes/themes';
 
 interface CardProps {
@@ -146,7 +146,7 @@ export function Card({
                 style={{ color: suitColor }}
             >
                 {card.rank === 'JOKER' ? (
-                    <span className="text-3xl">★</span>
+                    <span className="text-3xl">{SYMBOLS.star}</span>
                 ) : (
                     <span className="text-2xl">{suitSymbol}</span>
                 )}

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { SYMBOLS } from '../game/engine/rules';
 import type { Card as CardType } from '../game/types';
 import { Pile } from './Pile';
 import type { MutableRefObject, RefObject } from 'react';
@@ -90,7 +91,7 @@ export function CenterPiles({
                                         }}
                                     />
                                 </div>
-                                <span className="text-2xl opacity-30 z-10">♠</span>
+                                <span className="text-2xl opacity-30 z-10">{SYMBOLS.spade}</span>
                             </>
                         ) : (
                             <span className="text-gray-500 text-xs">Empty</span>
