@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import type { Card as CardType } from '../game/types';
-import { getRankDisplay, getSuitSymbol } from '../game/engine/rules';
+import { getRankDisplay, getSuitSymbol, getBackSymbol } from '../game/engine/rules';
 import type { ThemeColor } from '../themes/themes';
 
 interface CardProps {
@@ -14,6 +14,7 @@ interface CardProps {
     className?: string;
     // Theme colors
     backColor?: ThemeColor; // Color for card back
+    backSymbol?: string; // Symbol to show on card back (default: ♠)
     suitColors?: {
         clubsSpades: string; // Color for ♣♠
         heartsDiamonds: string; // Color for ♥♦
@@ -43,8 +44,11 @@ export function Card({
     size = 'normal',
     className = '',
     backColor = defaultBackColor,
+    backSymbol,
     suitColors = defaultSuitColors,
 }: CardProps) {
+    // Use VS15-safe symbol by default
+    const resolvedBackSymbol = backSymbol ?? getBackSymbol('spade');
     const sizeClasses = size === 'normal' ? 'w-16 h-24 text-xl' : 'w-12 h-18 text-base';
 
     const baseClasses = `
@@ -87,7 +91,7 @@ export function Card({
                     />
                     <div className="absolute inset-0 flex items-center justify-center">
                         <span className="text-2xl opacity-40" style={{ color: 'white' }}>
-                            ♠
+                            {resolvedBackSymbol}
                         </span>
                     </div>
                 </div>

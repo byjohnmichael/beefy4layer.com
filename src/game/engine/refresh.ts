@@ -1,10 +1,6 @@
 import type { Card } from '../types';
 import { shuffle, drawCards } from './deck';
 
-/**
- * Refresh the center piles by collecting all cards, shuffling, and dealing new piles
- * This happens when the deck becomes empty after a replacement draw
- */
 export function refreshCenterPiles(centerPiles: Card[][]): {
     newDeck: Card[];
     newCenterPiles: Card[][];

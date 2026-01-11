@@ -113,7 +113,7 @@ export function TurnIndicator({
                     </text>
                 )}
 
-                {/* Question mark during neutral/dealing */}
+                {/* Star during neutral/dealing */}
                 {(showNeutral || isFlipping) && (
                     <text
                         x="28"
@@ -123,7 +123,7 @@ export function TurnIndicator({
                         fill="white"
                         fontWeight="bold"
                     >
-                        ?
+                        ★
                     </text>
                 )}
             </svg>

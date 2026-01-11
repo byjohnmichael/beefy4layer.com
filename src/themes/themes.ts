@@ -97,6 +97,7 @@ export const pinkGoldTheme: CardTheme = {
     },
 };
 
+
 // All available themes
 export const themes: CardTheme[] = [classicTheme, tacoBellTheme, denverBroncoTheme, pinkGoldTheme];
 

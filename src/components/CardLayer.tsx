@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import type { Card as CardType, GameState, PlayerId } from '../game/types';
 import { Card } from './Card';
-import { getLegalPiles } from '../game/engine/rules';
+import { getLegalPiles, getBackSymbol } from '../game/engine/rules';
 import type { CardTheme, ThemeColor } from '../themes/themes';
 
 interface CardPosition {
@@ -17,6 +17,7 @@ interface CardPosition {
     isSelected: boolean;
     isDimmed: boolean;
     backColor: ThemeColor; // Which color to use for card back
+    backSymbol: string; // Symbol to show on card back
 }
 
 interface CardLayerProps {
@@ -38,7 +39,6 @@ interface CardLayerProps {
     hiddenCardIds?: string[];
     // Theme props
     myTheme: CardTheme;
-    opponentTheme: CardTheme;
     // Dealing animation - cards that have been dealt (show them), others stay at deck
     dealtCards?: Set<string>;
     isDealing?: boolean;
@@ -57,7 +57,6 @@ export function CardLayer({
     drawingCardId,
     hiddenCardIds = [],
     myTheme,
-    opponentTheme,
     dealtCards,
     isDealing = false,
     myPlayerId = 'P1',
@@ -106,7 +105,8 @@ export function CardLayer({
             isSelectable: false,
             isSelected: false,
             isDimmed: false,
-            backColor: opponentTheme.secondary, // Opponent's cards use secondary color
+            backColor: myTheme.secondary,
+            backSymbol: getBackSymbol('diamond'),
         });
     });
 
@@ -137,6 +137,7 @@ export function CardLayer({
             isSelected,
             isDimmed: isPlayerTurn && !hasLegalPlay && !selectedCard,
             backColor: myTheme.primary, // My cards use primary color
+            backSymbol: getBackSymbol('spade'),
         });
     });
 
@@ -171,6 +172,7 @@ export function CardLayer({
             isSelected,
             isDimmed: false,
             backColor: myTheme.primary, // My face-down cards use primary
+            backSymbol: getBackSymbol('spade'),
         });
         myFDIndex++;
     });
@@ -198,7 +200,8 @@ export function CardLayer({
             isSelectable: false,
             isSelected: false,
             isDimmed: false,
-            backColor: opponentTheme.secondary, // Opponent's face-down use secondary
+            backColor: myTheme.secondary,
+            backSymbol: getBackSymbol('diamond'),
         });
         opponentFDIndex++;
     });
@@ -240,6 +243,7 @@ export function CardLayer({
             isSelected: false,
             isDimmed: hasSelection && !isLegal,
             backColor: myTheme.neutral, // Center piles use neutral (shouldn't be seen anyway)
+            backSymbol: getBackSymbol('spade'),
         });
     });
 
@@ -321,6 +325,7 @@ export function CardLayer({
                                 !isDealing && pos.isSelectable && pos.location === 'pile'
                             }
                             backColor={pos.backColor}
+                            backSymbol={pos.backSymbol}
                             suitColors={suitColors}
                         />
                     </motion.div>

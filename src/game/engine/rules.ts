@@ -99,27 +99,37 @@ export function hasLegalHandPlay(hand: Card[], centerPiles: Card[][]): boolean {
     return false;
 }
 
+// Unicode Variation Selector-15 forces text rendering instead of emoji on mobile
+const VS15 = '\uFE0E';
+
 /**
  * Get rank display string
  */
 export function getRankDisplay(rank: Rank): string {
-    if (rank === 'JOKER') return '★';
+    if (rank === 'JOKER') return '★' + VS15;
     return rank;
 }
 
 /**
- * Get suit symbol
+ * Get back symbol (with VS15 to prevent emoji rendering on mobile)
+ */
+export function getBackSymbol(symbol: 'spade' | 'diamond'): string {
+    return symbol === 'spade' ? '♠' + VS15 : '♦' + VS15;
+}
+
+/**
+ * Get suit symbol (with VS15 to prevent emoji rendering on mobile)
  */
 export function getSuitSymbol(suit: string | null): string {
     switch (suit) {
         case 'hearts':
-            return '♥';
+            return '♥' + VS15;
         case 'diamonds':
-            return '♦';
+            return '♦' + VS15;
         case 'clubs':
-            return '♣';
+            return '♣' + VS15;
         case 'spades':
-            return '♠';
+            return '♠' + VS15;
         default:
             return '';
     }

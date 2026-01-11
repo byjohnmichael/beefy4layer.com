@@ -1,7 +1,7 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import type { Card as CardType } from '../game/types';
 import { Card } from './Card';
 import { getLegalPiles } from '../game/engine/rules';
+import type { Card as CardType } from '../game/types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface PlayerHandProps {
     cards: CardType[];

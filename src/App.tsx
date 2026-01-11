@@ -1,34 +1,35 @@
+import type { Room } from './lib/multiplayer';
 import { useState, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { TitleScreen } from './screens/TitleScreen';
 import { Game, type GameMode } from './screens/Game';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { tacoBellTheme, type CardTheme } from './themes/themes';
-import type { Room } from './lib/multiplayer';
 
 type Screen = 'title' | 'game';
 
+// Main application entry point, index.html calls main.tsx which calls App.tsx
 function App() {
-    const [currentScreen, setCurrentScreen] = useState<Screen>('title');
-    const [gameMode, setGameMode] = useState<GameMode>('singleplayer');
 
-    // Theme state
+    // Screen state
+    const [currentScreen, setCurrentScreen] = useState<Screen>('title');
+
+    // User info state
+    const [gameMode, setGameMode] = useState<GameMode>('singleplayer');
     const [myTheme, setMyTheme] = useState<CardTheme>(tacoBellTheme);
 
-    // Multiplayer state
+    // Multiplayer info state
     const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
     const [isHost, setIsHost] = useState(false);
 
-    // For simplicity, opponent always uses your secondary color for their card backs
-    // This avoids confusion and doesn't require fetching opponent's theme
-    const opponentTheme = myTheme; // Uses myTheme.secondary for opponent card backs
-
+    // Set state to start singleplayer mode
     const handleStartSingleplayer = () => {
         setGameMode('singleplayer');
         setCurrentRoom(null);
         setCurrentScreen('game');
     };
 
+    // Set state to start multiplayer mode
     const handleStartMultiplayer = (room: Room, host: boolean) => {
         setGameMode('multiplayer');
         setCurrentRoom(room);
@@ -36,19 +37,21 @@ function App() {
         setCurrentScreen('game');
     };
 
-    // Use a key to force remount when resetting after error
-    const [gameKey, setGameKey] = useState(0);
-
+    // Set state to exit to title screen
     const handleExitToTitle = () => {
         setCurrentScreen('title');
         setCurrentRoom(null);
     };
 
+    // To reset the game, increment the key to force remount
+    const [gameKey, setGameKey] = useState(0);
+
+    // Set state to reset game
     const handleGameReset = useCallback(() => {
-        // Increment key to force remount of Game component
         setGameKey((k) => k + 1);
     }, []);
 
+    // Set state to change theme
     const handleThemeChange = (theme: CardTheme) => {
         setMyTheme(theme);
     };
@@ -62,6 +65,7 @@ function App() {
             }}
         >
             <AnimatePresence mode="wait">
+                {/* Title screen logic */}
                 {currentScreen === 'title' && (
                     <motion.div
                         key="title"
@@ -79,6 +83,7 @@ function App() {
                     </motion.div>
                 )}
 
+                {/* Game screen logic */}
                 {currentScreen === 'game' && (
                     <motion.div
                         key="game"
@@ -93,7 +98,6 @@ function App() {
                                 mode={gameMode}
                                 onExit={handleExitToTitle}
                                 myTheme={myTheme}
-                                opponentTheme={opponentTheme}
                                 room={currentRoom}
                                 isHost={isHost}
                             />

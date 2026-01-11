@@ -19,7 +19,6 @@ interface GameProps {
     mode: GameMode;
     onExit: () => void;
     myTheme: CardTheme; // Your selected theme
-    opponentTheme: CardTheme; // Opponent's theme (same as yours in singleplayer)
     room?: Room | null; // Room data for multiplayer
     isHost?: boolean; // Are we the host in multiplayer?
 }
@@ -59,7 +58,7 @@ type FaceDownPlayAnimation = {
 
 type GamePhase = 'dealing' | 'coinFlip' | 'playing';
 
-export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true }: GameProps) {
+export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) {
     // For multiplayer, use the room's game state if available
     const initialState =
         mode === 'multiplayer' && room?.game_state ? room.game_state : createInitialState();
@@ -617,7 +616,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                                 <>
                                     <div className="absolute inset-1 rounded border border-white/20" />
                                     <div className="w-full h-full flex items-center justify-center">
-                                        <span className="text-2xl opacity-40 text-white">♠</span>
+                                        <span className="text-2xl opacity-40 text-white">★</span>
                                     </div>
                                 </>
                             )}
@@ -691,10 +690,10 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                         top:
                             gamePhase === 'playing'
                                 ? isMyTurn
-                                    ? 'calc(100% - 236px)'
-                                    : '100px' // My turn = bottom, opponent = top
-                                : 'calc(50% - 28px)', // Centered vertically during dealing/coinFlip
-                        rotate: coinFlipAnimating ? 1080 : 0, // Spin during coin flip
+                                    ? 'calc(100% - 240px)'  // Position of my chip
+                                    : '56px'                // Position of opponent's chip
+                                : 'calc(50% - 92px)',       // Position of chip during dealing/coinFlip
+                        rotate: coinFlipAnimating ? 360 : 0, // Spin during coin flip
                     }}
                     transition={{
                         top: { type: 'spring', stiffness: 100, damping: 18, mass: 1 },
@@ -710,7 +709,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                                 : coinFlipResult || 'P1'
                         }
                         p1Color={myTheme.primary}
-                        p2Color={opponentTheme.secondary}
+                        p2Color={myTheme.secondary}
                         neutralColor={myTheme.neutral}
                         isFlipping={coinFlipAnimating}
                         showNeutral={gamePhase === 'dealing'}
@@ -736,7 +735,6 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                             : undefined,
                     ].filter((id): id is string => !!id)}
                     myTheme={myTheme}
-                    opponentTheme={opponentTheme}
                     dealtCards={dealtCards}
                     isDealing={gamePhase === 'dealing'}
                     myPlayerId={myPlayerId}
@@ -887,7 +885,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                                         backColor={
                                             faceDownPlay.player === 'P1'
                                                 ? myTheme.primary
-                                                : opponentTheme.secondary
+                                                : myTheme.secondary
                                         }
                                     />
                                 </div>
@@ -963,7 +961,7 @@ export function Game({ mode, onExit, myTheme, opponentTheme, room, isHost = true
                                         backColor={
                                             faceDownPlay.player === 'P1'
                                                 ? myTheme.primary
-                                                : opponentTheme.secondary
+                                                : myTheme.secondary
                                         }
                                     />
                                 </motion.div>

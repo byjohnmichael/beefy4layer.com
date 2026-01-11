@@ -2,18 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemePreview } from '../components/ThemePreview';
 import { themes, type CardTheme } from '../themes/themes';
-import {
-    getPlayer,
-    registerPlayer,
-    checkUsernameAvailable,
-    updatePlayerTheme,
-    createRoom,
-    joinRoom,
-    leaveRoom,
-    subscribeToRoom,
-    type Player,
-    type Room,
-} from '../lib/multiplayer';
+import { getPlayer, registerPlayer, checkUsernameAvailable, updatePlayerTheme, createRoom, joinRoom, leaveRoom, subscribeToRoom, type Player, type Room} from '../lib/multiplayer';
 
 interface TitleScreenProps {
     onStartSingleplayer: () => void;
