@@ -68,7 +68,6 @@ export function CardLayer({
     const suitColors = {
         clubsSpades: myTheme.primary.solid,
         heartsDiamonds: myTheme.secondary.solid,
-        joker: myTheme.neutral.solid,
     };
 
     // Determine which player's cards go where based on perspective
@@ -269,7 +268,7 @@ export function CardLayer({
             : cardPositions;
 
     return (
-        <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
             {visiblePositions.map((pos) => {
                 // During dealing, check if this card has been dealt yet
                 const hasBeenDealt = !dealtCards || dealtCards.has(pos.card.id);
@@ -327,6 +326,8 @@ export function CardLayer({
                             backColor={pos.backColor}
                             backSymbol={pos.backSymbol}
                             suitColors={suitColors}
+                            jokerColor={myTheme.neutral}
+                            darkFace={myTheme.darkCardFace}
                         />
                     </motion.div>
                 );

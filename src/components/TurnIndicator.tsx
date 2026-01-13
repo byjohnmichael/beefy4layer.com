@@ -1,8 +1,18 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import type { PlayerId } from '../game/types';
 import type { ThemeColor } from '../themes/themes';
 import { SYMBOLS } from '../game/engine/rules';
+
+// Parse gradient string to extract colors for SVG
+function parseGradient(gradient: string): { start: string; end: string } {
+    const colorMatch = gradient.match(/#[a-fA-F0-9]{6}/g);
+    if (colorMatch && colorMatch.length >= 2) {
+        return { start: colorMatch[0], end: colorMatch[1] };
+    }
+    // Fallback
+    return { start: '#2d5a7b', end: '#1a3d5c' };
+}
 
 interface TurnIndicatorProps {
     currentPlayer: PlayerId;
@@ -54,16 +64,43 @@ export function TurnIndicator({
     const activeColor = getActiveColor();
     const showIcon = !showNeutral && !isFlipping;
 
+    // Parse gradient colors for SVG
+    const neutralGradientColors = useMemo(
+        () => (neutralColor ? parseGradient(neutralColor.gradient) : null),
+        [neutralColor],
+    );
+
+    // Use gradient for neutral state, solid color otherwise
+    const useGradient = showNeutral && neutralGradientColors;
+
     return (
         <motion.div className="relative">
             {/* Casino chip */}
             <svg width="56" height="56" viewBox="0 0 56 56">
+                {/* Gradient definitions */}
+                {neutralGradientColors && (
+                    <defs>
+                        <linearGradient
+                            id="neutralGradient"
+                            x1="0%"
+                            y1="0%"
+                            x2="100%"
+                            y2="100%"
+                        >
+                            <stop offset="0%" stopColor={neutralGradientColors.start} />
+                            <stop offset="100%" stopColor={neutralGradientColors.end} />
+                        </linearGradient>
+                    </defs>
+                )}
+
                 {/* Outer ring with notches */}
                 <motion.circle
                     cx="28"
                     cy="28"
                     r="26"
-                    animate={{ fill: activeColor.solid }}
+                    animate={{
+                        fill: useGradient ? 'url(#neutralGradient)' : activeColor.solid,
+                    }}
                     transition={{ duration: 0.5, ease: 'easeInOut' }}
                     stroke="rgba(0,0,0,0.3)"
                     strokeWidth="2"
@@ -103,7 +140,9 @@ export function TurnIndicator({
                     cx="28"
                     cy="28"
                     r="10"
-                    animate={{ fill: activeColor.solid }}
+                    animate={{
+                        fill: useGradient ? 'url(#neutralGradient)' : activeColor.solid,
+                    }}
                     transition={{ duration: 0.5, ease: 'easeInOut' }}
                 />
 
@@ -133,7 +172,7 @@ export function TurnIndicator({
             <motion.div
                 className="absolute inset-0 rounded-full blur-md -z-10"
                 animate={{
-                    background: activeColor.solid,
+                    background: useGradient ? activeColor.gradient : activeColor.solid,
                     boxShadow: `0 0 25px ${activeColor.glow}`,
                     opacity: isFlipping ? 0.6 : 0.6,
                 }}

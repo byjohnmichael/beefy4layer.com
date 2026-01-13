@@ -58,7 +58,7 @@ function App() {
 
     return (
         <div
-            className="min-h-screen"
+            className="fixed inset-0"
             style={{
                 background:
                     'radial-gradient(ellipse at center, #1a4a3a 0%, #0f2d23 50%, #0a1f18 100%)',

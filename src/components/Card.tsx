@@ -18,8 +18,9 @@ interface CardProps {
     suitColors?: {
         clubsSpades: string; // Color for ♣♠
         heartsDiamonds: string; // Color for ♥♦
-        joker?: string; // Color for Jokers (neutral)
     };
+    jokerColor?: ThemeColor; // Gradient color for Jokers (uses neutral theme)
+    darkFace?: boolean; // If true, use dark background for card face (for light suit colors)
 }
 
 // Default colors (fallback if no theme provided)
@@ -46,6 +47,8 @@ export function Card({
     backColor = defaultBackColor,
     backSymbol,
     suitColors = defaultSuitColors,
+    jokerColor,
+    darkFace = false,
 }: CardProps) {
     // Use VS15-safe symbol by default
     const resolvedBackSymbol = backSymbol ?? getBackSymbol('spade');
@@ -100,21 +103,31 @@ export function Card({
     }
 
     // Card face - determine suit color
-    // Jokers have null suit and use neutral color
     const isBlackSuit = card.suit !== null && (card.suit === 'clubs' || card.suit === 'spades');
-    const suitColor =
-        card.rank === 'JOKER'
-            ? suitColors.joker || suitColors.heartsDiamonds // Jokers use neutral color
-            : isBlackSuit
-              ? suitColors.clubsSpades
-              : suitColors.heartsDiamonds;
+    const isJoker = card.rank === 'JOKER';
+    const suitColor = isBlackSuit ? suitColors.clubsSpades : suitColors.heartsDiamonds;
+
+    // Gradient text style for Jokers (like the deck)
+    const jokerGradientStyle = jokerColor
+        ? {
+              background: jokerColor.gradient,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+          }
+        : { color: suitColors.heartsDiamonds };
 
     const rankDisplay = getRankDisplay(card.rank);
     const suitSymbol = getSuitSymbol(card.suit);
 
+    // Card face background - light cream or dark slate
+    const faceBackground = darkFace
+        ? 'bg-gradient-to-br from-[#1e293b] to-[#0f172a]'
+        : 'bg-gradient-to-br from-[#f5f0e6] to-[#e8e0d0]';
+
     return (
         <motion.div
-            className={`${baseClasses} bg-gradient-to-br from-[#f5f0e6] to-[#e8e0d0] ${className}`}
+            className={`${baseClasses} ${faceBackground} ${className}`}
             onClick={!isDimmed ? onClick : undefined}
             whileHover={onClick && !isDimmed ? { y: -8 } : {}}
             whileTap={onClick && !isDimmed ? { scale: 0.95 } : {}}
@@ -127,7 +140,7 @@ export function Card({
             {/* Corner rank/suit - top left */}
             <div
                 className="absolute top-1 left-1.5 flex flex-col items-center leading-none"
-                style={{ color: suitColor }}
+                style={isJoker ? jokerGradientStyle : { color: suitColor }}
             >
                 <span
                     className="font-bold"
@@ -135,17 +148,19 @@ export function Card({
                 >
                     {rankDisplay}
                 </span>
-                <span style={{ fontSize: size === 'normal' ? '0.75rem' : '0.625rem' }}>
-                    {suitSymbol}
-                </span>
+                {!isJoker && (
+                    <span style={{ fontSize: size === 'normal' ? '0.75rem' : '0.625rem' }}>
+                        {suitSymbol}
+                    </span>
+                )}
             </div>
 
             {/* Center suit */}
             <div
                 className="absolute inset-0 flex items-center justify-center"
-                style={{ color: suitColor }}
+                style={isJoker ? jokerGradientStyle : { color: suitColor }}
             >
-                {card.rank === 'JOKER' ? (
+                {isJoker ? (
                     <span className="text-3xl">{SYMBOLS.star}</span>
                 ) : (
                     <span className="text-2xl">{suitSymbol}</span>
@@ -155,7 +170,7 @@ export function Card({
             {/* Corner rank/suit - bottom right (inverted) */}
             <div
                 className="absolute bottom-1 right-1.5 flex flex-col items-center leading-none rotate-180"
-                style={{ color: suitColor }}
+                style={isJoker ? jokerGradientStyle : { color: suitColor }}
             >
                 <span
                     className="font-bold"
@@ -163,9 +178,11 @@ export function Card({
                 >
                     {rankDisplay}
                 </span>
-                <span style={{ fontSize: size === 'normal' ? '0.75rem' : '0.625rem' }}>
-                    {suitSymbol}
-                </span>
+                {!isJoker && (
+                    <span style={{ fontSize: size === 'normal' ? '0.75rem' : '0.625rem' }}>
+                        {suitSymbol}
+                    </span>
+                )}
             </div>
         </motion.div>
     );
@@ -179,6 +196,8 @@ export function FlipCard({
     isSelected = false,
     backColor,
     suitColors,
+    jokerColor,
+    darkFace = false,
 }: {
     card: CardType;
     isFlipped: boolean;
@@ -186,6 +205,8 @@ export function FlipCard({
     isSelected?: boolean;
     backColor?: ThemeColor;
     suitColors?: { clubsSpades: string; heartsDiamonds: string };
+    jokerColor?: ThemeColor;
+    darkFace?: boolean;
 }) {
     return (
         <div className="relative w-16 h-24" style={{ perspective: '1000px' }}>
@@ -212,7 +233,7 @@ export function FlipCard({
                     className="absolute inset-0"
                     style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
                 >
-                    <Card card={card} faceUp={true} suitColors={suitColors} />
+                    <Card card={card} faceUp={true} suitColors={suitColors} jokerColor={jokerColor} darkFace={darkFace} />
                 </div>
             </motion.div>
         </div>

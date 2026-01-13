@@ -23,6 +23,16 @@ export function TitleScreen({
 }: TitleScreenProps) {
     const [view, setView] = useState<MenuView>('title');
     const [multiplayerMode, setMultiplayerMode] = useState<MultiplayerMode>('menu');
+    const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+
+    // Filter out disabled themes, then compute ungrouped themes and unique groups
+    const enabledThemes = themes.filter((t) => !t.disabled);
+    const ungroupedThemes = enabledThemes.filter((t) => !t.group);
+    const groupedThemes = enabledThemes.filter((t) => t.group);
+    const uniqueGroups = [...new Set(groupedThemes.map((t) => t.group!))];
+    const themesInSelectedGroup = selectedGroup
+        ? enabledThemes.filter((t) => t.group === selectedGroup)
+        : [];
 
     // Player state
     const [player, setPlayer] = useState<Player | null>(null);
@@ -36,6 +46,15 @@ export function TitleScreen({
     const [joinCode, setJoinCode] = useState('');
     const [joinError, setJoinError] = useState<string | null>(null);
     const [isJoining, setIsJoining] = useState(false);
+
+    // Track window width for responsive behavior
+    const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1000);
+
+    useEffect(() => {
+        const handleResize = () => setWindowWidth(window.innerWidth);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Load existing player on mount
     useEffect(() => {
@@ -724,7 +743,7 @@ export function TitleScreen({
                 {view === 'themes' && (
                     <motion.div
                         key="themes-content"
-                        className="flex gap-16 items-start"
+                        className="flex flex-col md:flex-row gap-8 md:gap-16 items-center md:items-start px-4"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -732,7 +751,7 @@ export function TitleScreen({
                     >
                         {/* Left side - Theme selection */}
                         <motion.div
-                            className="flex flex-col gap-2 w-64"
+                            className="flex flex-col gap-2 w-64 max-w-full"
                             initial={{ x: -30, opacity: 0 }}
                             animate={{ x: 0, opacity: 1 }}
                             transition={{ delay: 0.1, duration: 0.4 }}
@@ -745,85 +764,129 @@ export function TitleScreen({
                                     WebkitTextFillColor: 'transparent',
                                 }}
                             >
-                                Select Theme
+                                {selectedGroup ? selectedGroup.toUpperCase() : 'Select Theme'}
                             </h2>
 
-                            {themes.map((theme, index) => (
-                                <motion.button
-                                    key={theme.id}
-                                    onClick={() => handleThemeChange(theme)}
-                                    className="relative px-6 py-4 rounded-xl text-left overflow-hidden group"
-                                    initial={{ x: -20, opacity: 0 }}
-                                    animate={{ x: 0, opacity: 1 }}
-                                    transition={{ delay: 0.15 + index * 0.08 }}
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    style={{
-                                        background:
-                                            selectedTheme.id === theme.id
-                                                ? 'linear-gradient(135deg, rgba(124, 58, 237, 0.3) 0%, rgba(91, 33, 182, 0.3) 100%)'
-                                                : 'rgba(255,255,255,0.05)',
-                                        border:
-                                            selectedTheme.id === theme.id
-                                                ? '2px solid rgba(124, 58, 237, 0.6)'
-                                                : '2px solid transparent',
-                                    }}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        {/* Radio indicator */}
-                                        <div
-                                            className="w-5 h-5 rounded-full border-2 flex items-center justify-center"
+                            {/* Scrollable theme list */}
+                            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+                                {/* Show ungrouped themes or themes in selected group */}
+                                {(selectedGroup ? themesInSelectedGroup : ungroupedThemes).map(
+                                    (theme, index) => (
+                                        <motion.button
+                                            key={theme.id}
+                                            onClick={() => handleThemeChange(theme)}
+                                            className="relative px-6 py-4 min-h-[56px] rounded-xl text-left overflow-hidden group"
+                                            initial={{ x: -20, opacity: 0 }}
+                                            animate={{ x: 0, opacity: 1 }}
+                                            transition={{ delay: 0.15 + index * 0.05 }}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
                                             style={{
-                                                borderColor:
+                                                background:
                                                     selectedTheme.id === theme.id
-                                                        ? '#a855f7'
-                                                        : 'rgba(255,255,255,0.3)',
+                                                        ? 'linear-gradient(135deg, rgba(124, 58, 237, 0.3) 0%, rgba(91, 33, 182, 0.3) 100%)'
+                                                        : 'rgba(255,255,255,0.05)',
+                                                border:
+                                                    selectedTheme.id === theme.id
+                                                        ? '2px solid rgba(124, 58, 237, 0.6)'
+                                                        : '2px solid transparent',
                                             }}
                                         >
-                                            {selectedTheme.id === theme.id && (
-                                                <motion.div
-                                                    className="w-2.5 h-2.5 rounded-full bg-purple-400"
-                                                    initial={{ scale: 0 }}
-                                                    animate={{ scale: 1 }}
-                                                    transition={{
-                                                        type: 'spring',
-                                                        stiffness: 500,
-                                                        damping: 30,
+                                            <div className="flex items-center gap-3">
+                                                {/* Radio indicator */}
+                                                <div
+                                                    className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                                                    style={{
+                                                        borderColor:
+                                                            selectedTheme.id === theme.id
+                                                                ? '#a855f7'
+                                                                : 'rgba(255,255,255,0.3)',
                                                     }}
-                                                />
-                                            )}
-                                        </div>
+                                                >
+                                                    {selectedTheme.id === theme.id && (
+                                                        <motion.div
+                                                            className="w-2.5 h-2.5 rounded-full bg-purple-400"
+                                                            initial={{ scale: 0 }}
+                                                            animate={{ scale: 1 }}
+                                                            transition={{
+                                                                type: 'spring',
+                                                                stiffness: 500,
+                                                                damping: 30,
+                                                            }}
+                                                        />
+                                                    )}
+                                                </div>
 
-                                        {/* Theme name and color swatches */}
-                                        <div className="flex-1">
-                                            <span className="text-white font-medium">
-                                                {theme.name}
-                                            </span>
-                                        </div>
+                                                {/* Theme name and color swatches */}
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="text-white font-medium text-sm truncate block">
+                                                        {theme.name}
+                                                    </span>
+                                                </div>
 
-                                        {/* Mini color swatches */}
-                                        <div className="flex gap-1">
-                                            <div
-                                                className="w-4 h-4 rounded-sm"
-                                                style={{ background: theme.primary.gradient }}
-                                            />
-                                            <div
-                                                className="w-4 h-4 rounded-sm"
-                                                style={{ background: theme.secondary.gradient }}
-                                            />
-                                            <div
-                                                className="w-4 h-4 rounded-sm"
-                                                style={{ background: theme.neutral.gradient }}
-                                            />
-                                        </div>
-                                    </div>
-                                </motion.button>
-                            ))}
+                                                {/* Mini color swatches - hidden on screens < 652px */}
+                                                {windowWidth >= 652 && (
+                                                    <div className="flex gap-1 flex-shrink-0">
+                                                        <div
+                                                            className="w-4 h-4 rounded-sm"
+                                                            style={{ background: theme.primary.gradient }}
+                                                        />
+                                                        <div
+                                                            className="w-4 h-4 rounded-sm"
+                                                            style={{ background: theme.secondary.gradient }}
+                                                        />
+                                                        <div
+                                                            className="w-4 h-4 rounded-sm"
+                                                            style={{ background: theme.neutral.gradient }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.button>
+                                    ),
+                                )}
+                            </div>
+
+                            {/* Group buttons - only show when not in a group */}
+                            {!selectedGroup && uniqueGroups.length > 0 && (
+                                <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-white/10">
+                                    {uniqueGroups.map((group, index) => (
+                                        <motion.button
+                                            key={group}
+                                            onClick={() => setSelectedGroup(group)}
+                                            className="px-6 py-3 rounded-xl text-left font-bold uppercase tracking-wider text-sm"
+                                            initial={{ x: -20, opacity: 0 }}
+                                            animate={{ x: 0, opacity: 1 }}
+                                            transition={{
+                                                delay: 0.15 + ungroupedThemes.length * 0.05 + index * 0.08,
+                                            }}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            style={{
+                                                background:
+                                                    'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%)',
+                                                border: '2px solid rgba(59, 130, 246, 0.4)',
+                                            }}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-blue-300">{group}</span>
+                                                <span className="text-white/40">→</span>
+                                            </div>
+                                        </motion.button>
+                                    ))}
+                                </div>
+                            )}
 
                             {/* Back button */}
                             <motion.button
-                                onClick={() => setView('title')}
-                                className="mt-8 px-6 py-3 rounded-xl text-white/70 hover:text-white transition-colors"
+                                onClick={() => {
+                                    if (selectedGroup) {
+                                        setSelectedGroup(null);
+                                    } else {
+                                        setView('title');
+                                    }
+                                }}
+                                className="mt-4 px-6 py-3 rounded-xl text-white/70 hover:text-white transition-colors"
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 transition={{ delay: 0.4 }}
@@ -833,22 +896,24 @@ export function TitleScreen({
                                     background: 'rgba(255,255,255,0.1)',
                                 }}
                             >
-                                ← Back
+                                ← {selectedGroup ? 'Back to Themes' : 'Back'}
                             </motion.button>
                         </motion.div>
 
-                        {/* Right side - Theme preview */}
-                        <motion.div
-                            className="bg-black/20 rounded-2xl p-8 backdrop-blur-sm"
-                            initial={{ x: 30, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 0.2, duration: 0.4 }}
-                            style={{
-                                border: '1px solid rgba(255,255,255,0.1)',
-                            }}
-                        >
-                            <ThemePreview theme={selectedTheme} />
-                        </motion.div>
+                        {/* Right side - Theme preview (hidden on mobile) */}
+                        {windowWidth >= 652 && (
+                            <motion.div
+                                className="bg-black/20 rounded-2xl p-8 backdrop-blur-sm"
+                                initial={{ x: 30, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                transition={{ delay: 0.2, duration: 0.4 }}
+                                style={{
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                }}
+                            >
+                                <ThemePreview theme={selectedTheme} />
+                            </motion.div>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>

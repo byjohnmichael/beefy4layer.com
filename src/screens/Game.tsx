@@ -77,7 +77,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const suitColors = {
         clubsSpades: myTheme.primary.solid,
         heartsDiamonds: myTheme.secondary.solid,
-        joker: myTheme.neutral.solid,
     };
 
     // Track if we need to sync state to server
@@ -812,6 +811,8 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                     isDimmed={false}
                                     isHighlighted={false}
                                     suitColors={suitColors}
+                                    jokerColor={myTheme.neutral}
+                                    darkFace={myTheme.darkCardFace}
                                 />
                             </div>
                         </motion.div>
@@ -901,6 +902,8 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         card={faceDownPlay.card}
                                         faceUp={true}
                                         suitColors={suitColors}
+                                        jokerColor={myTheme.neutral}
+                                        darkFace={myTheme.darkCardFace}
                                     />
                                 </div>
                             </motion.div>
