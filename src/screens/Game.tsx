@@ -15,6 +15,10 @@ import { subscribeToRoom, updateGameState, endGame } from '../lib/multiplayer';
 
 export type GameMode = 'singleplayer' | 'multiplayer';
 
+// Mobile scaling configuration - adjust MOBILE_CARD_SCALE to change how much smaller cards appear on small screens
+const MOBILE_BREAKPOINT = 489; // Screen width below which scaling applies
+const MOBILE_CARD_SCALE = 0.75; // 0.75 = 25% smaller (1 - 0.25)
+
 interface GameProps {
     mode: GameMode;
     onExit: () => void;

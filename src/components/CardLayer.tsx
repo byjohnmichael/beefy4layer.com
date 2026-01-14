@@ -44,6 +44,8 @@ interface CardLayerProps {
     isDealing?: boolean;
     // Perspective: which player ID is "me" (renders at bottom)
     myPlayerId?: PlayerId;
+    // Scale factor for responsive sizing (1 = normal, 0.75 = 25% smaller)
+    scale?: number;
 }
 
 export function CardLayer({

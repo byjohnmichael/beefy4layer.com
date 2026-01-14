@@ -108,6 +108,28 @@ export const beachTheme: CardTheme = defineTheme({
     darkCardFace: false,
 });
 
+export const forestSageTheme: CardTheme = defineTheme({
+    id: 'forest-sage',
+    name: 'Forest Sage',
+    primary: {
+        gradient: 'linear-gradient(135deg, #2f6b4f 0%, #1f4d3a 100%)', // forest green
+        solid: '#2f6b4f',
+        glow: 'rgba(47, 107, 79, 0.5)',
+    },
+    secondary: {
+        gradient: 'linear-gradient(135deg, #9caf88 0%, #7f9470 100%)', // sage green
+        solid: '#9caf88',
+        glow: 'rgba(156, 175, 136, 0.5)',
+    },
+    neutral: {
+        gradient: 'linear-gradient(135deg, #1f4d3a 0%, #8fae8b 50%, #9caf88 100%)',
+        solid: '#8fae8b',
+        glow: 'rgba(143, 174, 139, 0.5)',
+    },
+    darkCardFace: false,
+});
+
+
 // Arizona Cardinals — cardinal red / black
 export const cardinalsTheme: CardTheme = defineTheme({
     id: 'cardinals',
