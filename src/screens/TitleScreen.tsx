@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ThemePreview } from '../components/ThemePreview';
 import { themes, type CardTheme } from '../themes/themes';
 import { SYMBOLS } from '../game/engine/rules';
-import { getPlayer, registerPlayer, checkUsernameAvailable, updatePlayerTheme, createRoom, joinRoom, leaveRoom, subscribeToRoom, type Player, type Room} from '../lib/multiplayer';
+import { createRoom, joinRoom, leaveRoom, subscribeToRoom, startGame, getOrCreateClientId, type Room } from '../lib/multiplayer';
+import { createInitialState } from '../game/initialState';
 
 interface TitleScreenProps {
     onStartSingleplayer: () => void;
@@ -12,8 +13,8 @@ interface TitleScreenProps {
     onThemeChange: (theme: CardTheme) => void;
 }
 
-type MenuView = 'title' | 'themes' | 'multiplayer';
-type MultiplayerMode = 'menu' | 'creating' | 'joining' | 'lobby';
+type MenuView = 'title' | 'themes';
+type MultiplayerMode = 'menu' | 'creating' | 'joining' | 'waiting';
 
 export function TitleScreen({
     onStartSingleplayer,
@@ -34,13 +35,6 @@ export function TitleScreen({
         ? enabledThemes.filter((t) => t.group === selectedGroup)
         : [];
 
-    // Player state
-    const [player, setPlayer] = useState<Player | null>(null);
-    const [username, setUsername] = useState('');
-    const [usernameError, setUsernameError] = useState<string | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
-    const [showSaveButton, setShowSaveButton] = useState(false);
-
     // Room state
     const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
     const [joinCode, setJoinCode] = useState('');
@@ -56,77 +50,31 @@ export function TitleScreen({
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Load existing player on mount
-    useEffect(() => {
-        async function loadPlayer() {
-            const existingPlayer = await getPlayer();
-            if (existingPlayer) {
-                setPlayer(existingPlayer);
-                setUsername(existingPlayer.username);
-            }
-        }
-        loadPlayer();
-    }, []);
-
-    // Subscribe to room updates when in lobby
+    // Subscribe to room updates when waiting for guest
     useEffect(() => {
         if (!currentRoom) return;
 
-        const unsubscribe = subscribeToRoom(currentRoom.id, (updatedRoom) => {
+        const clientId = getOrCreateClientId();
+        const isHost = currentRoom.host_id === clientId;
+
+        const unsubscribe = subscribeToRoom(currentRoom.id, async (updatedRoom) => {
             setCurrentRoom(updatedRoom);
 
             // If game started, transition to game
             if (updatedRoom.status === 'playing') {
-                const isHost = updatedRoom.host_id === player?.id;
                 onStartMultiplayer(updatedRoom, isHost);
+                return;
+            }
+
+            // Auto-start: if we're host and guest just joined, start the game
+            if (isHost && updatedRoom.guest_id && updatedRoom.status === 'waiting') {
+                const initialState = createInitialState();
+                await startGame(updatedRoom.id, initialState);
             }
         });
 
         return unsubscribe;
-    }, [currentRoom?.id, player?.id, onStartMultiplayer]);
-
-    // Handle username input change
-    const handleUsernameChange = (value: string) => {
-        setUsername(value);
-        setUsernameError(null);
-        setShowSaveButton(value.trim().length > 0 && value !== player?.username);
-    };
-
-    // Save username
-    const handleSaveUsername = async () => {
-        if (!username.trim()) return;
-
-        setIsSaving(true);
-        setUsernameError(null);
-
-        // Check if username is available (unless it's our current username)
-        if (username !== player?.username) {
-            const available = await checkUsernameAvailable(username.trim());
-            if (!available) {
-                setUsernameError('Username already taken');
-                setIsSaving(false);
-                return;
-            }
-        }
-
-        const savedPlayer = await registerPlayer(username.trim(), selectedTheme.id);
-        if (savedPlayer) {
-            setPlayer(savedPlayer);
-            setShowSaveButton(false);
-        } else {
-            setUsernameError('Failed to save');
-        }
-
-        setIsSaving(false);
-    };
-
-    // Update theme in database when changed
-    const handleThemeChange = async (theme: CardTheme) => {
-        onThemeChange(theme);
-        if (player) {
-            await updatePlayerTheme(theme.id);
-        }
-    };
+    }, [currentRoom?.id, onStartMultiplayer]);
 
     // Create room
     const handleCreateRoom = async () => {
@@ -134,13 +82,13 @@ export function TitleScreen({
         const room = await createRoom();
         if (room) {
             setCurrentRoom(room);
-            setMultiplayerMode('lobby');
+            setMultiplayerMode('waiting');
         } else {
             setMultiplayerMode('menu');
         }
     };
 
-    // Join room
+    // Join room - game starts automatically when we join
     const handleJoinRoom = async (code: string) => {
         if (code.length !== 4) return;
 
@@ -150,7 +98,9 @@ export function TitleScreen({
         const { room, error } = await joinRoom(code);
         if (room) {
             setCurrentRoom(room);
-            setMultiplayerMode('lobby');
+            // The host will auto-start the game when they see we joined
+            // We'll transition when we receive the 'playing' status update
+            setMultiplayerMode('waiting');
         } else {
             setJoinError(error || 'Failed to join');
         }
@@ -169,21 +119,6 @@ export function TitleScreen({
         setJoinError(null);
     };
 
-    // Start game (host only)
-    const handleStartGame = async () => {
-        if (!currentRoom || !player) return;
-
-        const isHost = currentRoom.host_id === player.id;
-        if (!isHost) return;
-
-        // Import and create initial state
-        const { createInitialState } = await import('../game/initialState');
-        const { startGame } = await import('../lib/multiplayer');
-
-        const initialState = createInitialState();
-        await startGame(currentRoom.id, initialState);
-    };
-
     // Back to main menu
     const handleBackToMenu = () => {
         if (currentRoom) {
@@ -195,9 +130,8 @@ export function TitleScreen({
         setJoinError(null);
     };
 
-    const isMultiplayerEnabled = player !== null;
-    const isHost = currentRoom?.host_id === player?.id;
-    const canStartGame = isHost && currentRoom?.guest_id !== null;
+    const clientId = getOrCreateClientId();
+    const isHost = currentRoom?.host_id === clientId;
 
     return (
         <div
@@ -243,7 +177,7 @@ export function TitleScreen({
 
             {/* Error Toast - Top Left */}
             <AnimatePresence>
-                {usernameError && (
+                {joinError && (
                     <motion.div
                         className="fixed top-6 left-6 z-50 px-4 py-3 rounded-xl bg-red-500/90 text-white font-medium shadow-lg backdrop-blur-sm"
                         initial={{ opacity: 0, x: -20, y: -10 }}
@@ -252,164 +186,7 @@ export function TitleScreen({
                     >
                         <div className="flex items-center gap-2">
                             <span className="text-lg">⚠️</span>
-                            <span>{usernameError}</span>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Profile Section - Bottom Left */}
-            <motion.div
-                className="fixed bottom-6 left-6 z-40"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-            >
-                <div
-                    className="p-4 rounded-2xl backdrop-blur-sm"
-                    style={{
-                        background: 'rgba(0, 0, 0, 0.3)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                    }}
-                >
-                    {/* Username Input Row */}
-                    <div className="flex items-center gap-2 mb-3">
-                        <input
-                            type="text"
-                            value={username}
-                            onChange={(e) => handleUsernameChange(e.target.value)}
-                            placeholder="Username"
-                            maxLength={16}
-                            className="px-3 py-2 rounded-lg bg-white/10 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-purple-500/50 w-36 text-sm"
-                        />
-                        <AnimatePresence>
-                            {showSaveButton && (
-                                <motion.button
-                                    initial={{ opacity: 0, scale: 0.8, width: 0 }}
-                                    animate={{ opacity: 1, scale: 1, width: 'auto' }}
-                                    exit={{ opacity: 0, scale: 0.8, width: 0 }}
-                                    onClick={handleSaveUsername}
-                                    disabled={isSaving}
-                                    className="px-3 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
-                                >
-                                    {isSaving ? '...' : 'Save'}
-                                </motion.button>
-                            )}
-                        </AnimatePresence>
-                    </div>
-
-                    {/* Theme Display (only show after saved) */}
-                    {player && (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            className="flex items-center gap-3 pt-2 border-t border-white/10"
-                        >
-                            <span className="text-white/60 text-xs uppercase tracking-wide">
-                                Theme
-                            </span>
-                            <span className="text-white text-sm font-medium">
-                                {selectedTheme.name}
-                            </span>
-
-                            {/* Mini card preview */}
-                            <div className="flex items-center gap-1.5 ml-auto">
-                                {/* Face-down card mini */}
-                                <div
-                                    className="w-6 h-8 rounded-sm shadow-md"
-                                    style={{
-                                        background: selectedTheme.primary.gradient,
-                                        boxShadow: `0 2px 8px ${selectedTheme.primary.glow}`,
-                                    }}
-                                />
-                                {/* Chip/token mini */}
-                                <div
-                                    className="w-5 h-5 rounded-full shadow-md"
-                                    style={{
-                                        background: selectedTheme.secondary.gradient,
-                                        boxShadow: `0 2px 8px ${selectedTheme.secondary.glow}`,
-                                    }}
-                                />
-                            </div>
-                        </motion.div>
-                    )}
-                </div>
-            </motion.div>
-
-            {/* Room Lobby Info - Bottom Right (when in lobby) */}
-            <AnimatePresence>
-                {multiplayerMode === 'lobby' && currentRoom && (
-                    <motion.div
-                        className="fixed bottom-6 right-6 z-40"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 20 }}
-                    >
-                        <div
-                            className="p-5 rounded-2xl backdrop-blur-sm min-w-64"
-                            style={{
-                                background: 'rgba(0, 0, 0, 0.4)',
-                                border: '1px solid rgba(255, 255, 255, 0.15)',
-                            }}
-                        >
-                            <h3 className="text-white/60 text-xs uppercase tracking-wide mb-3">
-                                Players in Room
-                            </h3>
-
-                            {/* Host */}
-                            <div className="flex items-center gap-2 mb-2">
-                                <div className="w-2 h-2 rounded-full bg-green-400" />
-                                <span className="text-white text-sm">
-                                    {currentRoom.host?.username || 'Host'}
-                                </span>
-                                <span className="text-purple-400 text-xs ml-auto">👑 Host</span>
-                            </div>
-
-                            {/* Guest */}
-                            {currentRoom.guest ? (
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-green-400" />
-                                    <span className="text-white text-sm">
-                                        {currentRoom.guest.username}
-                                    </span>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2 opacity-50">
-                                    <div className="w-2 h-2 rounded-full bg-white/30" />
-                                    <span className="text-white/50 text-sm italic">
-                                        Waiting for player...
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* Start Game Button (Host only) */}
-                            {isHost && (
-                                <motion.button
-                                    onClick={handleStartGame}
-                                    disabled={!canStartGame}
-                                    className="w-full mt-4 px-4 py-3 rounded-xl font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                                    style={{
-                                        background: canStartGame
-                                            ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
-                                            : 'rgba(255,255,255,0.1)',
-                                        boxShadow: canStartGame
-                                            ? '0 4px 20px rgba(34, 197, 94, 0.4)'
-                                            : 'none',
-                                    }}
-                                    whileHover={canStartGame ? { scale: 1.02 } : {}}
-                                    whileTap={canStartGame ? { scale: 0.98 } : {}}
-                                >
-                                    {canStartGame ? 'Start Game' : 'Waiting for player...'}
-                                </motion.button>
-                            )}
-
-                            {/* Leave button */}
-                            <button
-                                onClick={handleLeaveRoom}
-                                className="w-full mt-2 px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/10 text-sm transition-colors"
-                            >
-                                Leave Room
-                            </button>
+                            <span>{joinError}</span>
                         </div>
                     </motion.div>
                 )}
@@ -492,56 +269,29 @@ export function TitleScreen({
                                 {multiplayerMode === 'menu' && (
                                     <motion.button
                                         key="multiplayer-btn"
-                                        onClick={() =>
-                                            isMultiplayerEnabled && setMultiplayerMode('creating')
-                                        }
-                                        disabled={!isMultiplayerEnabled}
+                                        onClick={() => setMultiplayerMode('creating')}
                                         className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         exit={{ opacity: 0, height: 0 }}
-                                        whileHover={isMultiplayerEnabled ? { scale: 1.03 } : {}}
-                                        whileTap={isMultiplayerEnabled ? { scale: 0.98 } : {}}
+                                        whileHover={{ scale: 1.03 }}
+                                        whileTap={{ scale: 0.98 }}
                                         style={{
-                                            background: isMultiplayerEnabled
-                                                ? 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)'
-                                                : 'linear-gradient(135deg, #3b2063 0%, #2d1b4e 100%)',
-                                            boxShadow: isMultiplayerEnabled
-                                                ? '0 8px 24px rgba(139, 92, 246, 0.4)'
-                                                : 'none',
-                                            opacity: isMultiplayerEnabled ? 1 : 0.6,
-                                            cursor: isMultiplayerEnabled
-                                                ? 'pointer'
-                                                : 'not-allowed',
+                                            background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                                            boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
                                         }}
                                     >
-                                        <span
-                                            className={
-                                                isMultiplayerEnabled
-                                                    ? 'text-white'
-                                                    : 'text-purple-300/60'
-                                            }
-                                        >
-                                            Multiplayer
-                                        </span>
-                                        {!isMultiplayerEnabled && (
-                                            <span className="absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium bg-amber-400 text-black rounded-full">
-                                                Set Username
-                                            </span>
-                                        )}
-                                        {isMultiplayerEnabled && (
-                                            <motion.div
-                                                className="absolute inset-0 bg-gradient-to-r from-purple-300/0 via-purple-300/30 to-purple-300/0"
-                                                initial={{ x: '-100%' }}
-                                                whileHover={{ x: '100%' }}
-                                                transition={{ duration: 0.6 }}
-                                            />
-                                        )}
+                                        <span className="text-white">Multiplayer</span>
+                                        <motion.div
+                                            className="absolute inset-0 bg-gradient-to-r from-purple-300/0 via-purple-300/30 to-purple-300/0"
+                                            initial={{ x: '-100%' }}
+                                            whileHover={{ x: '100%' }}
+                                            transition={{ duration: 0.6 }}
+                                        />
                                     </motion.button>
                                 )}
 
-                                {(multiplayerMode === 'creating' ||
-                                    multiplayerMode === 'lobby') && (
+                                {(multiplayerMode === 'creating' || multiplayerMode === 'waiting') && (
                                     <motion.div
                                         key="create-room"
                                         className="flex flex-col gap-3"
@@ -562,11 +312,16 @@ export function TitleScreen({
                                                 }}
                                             >
                                                 <div className="text-white/70 text-xs uppercase tracking-wider mb-1">
-                                                    Room Code
+                                                    {isHost ? 'Share This Code' : 'Joining...'}
                                                 </div>
                                                 <div className="text-white text-3xl font-mono font-bold tracking-[0.3em]">
                                                     {currentRoom.code}
                                                 </div>
+                                                {isHost && (
+                                                    <div className="text-white/60 text-xs mt-2">
+                                                        Waiting for opponent...
+                                                    </div>
+                                                )}
                                             </motion.div>
                                         ) : (
                                             <motion.button
@@ -591,38 +346,30 @@ export function TitleScreen({
                                                 animate={{ opacity: 1, y: 0 }}
                                                 transition={{ delay: 0.1 }}
                                             >
-                                                {multiplayerMode === 'creating' ? (
-                                                    <motion.button
-                                                        onClick={() =>
-                                                            setMultiplayerMode('joining')
-                                                        }
-                                                        className="w-full relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
-                                                        whileHover={{ scale: 1.03 }}
-                                                        whileTap={{ scale: 0.98 }}
-                                                        style={{
-                                                            background:
-                                                                'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                                                            boxShadow:
-                                                                '0 8px 24px rgba(99, 102, 241, 0.4)',
-                                                        }}
-                                                    >
-                                                        <span className="text-white">
-                                                            Join a Room
-                                                        </span>
-                                                    </motion.button>
-                                                ) : null}
+                                                <motion.button
+                                                    onClick={() => setMultiplayerMode('joining')}
+                                                    className="w-full relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
+                                                    whileHover={{ scale: 1.03 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                    style={{
+                                                        background:
+                                                            'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                                        boxShadow:
+                                                            '0 8px 24px rgba(99, 102, 241, 0.4)',
+                                                    }}
+                                                >
+                                                    <span className="text-white">Join a Room</span>
+                                                </motion.button>
                                             </motion.div>
                                         )}
 
-                                        {/* Back button */}
-                                        {!currentRoom && (
-                                            <button
-                                                onClick={handleBackToMenu}
-                                                className="text-white/50 hover:text-white text-sm transition-colors"
-                                            >
-                                                ← Back
-                                            </button>
-                                        )}
+                                        {/* Cancel/Leave button */}
+                                        <button
+                                            onClick={handleBackToMenu}
+                                            className="text-white/50 hover:text-white text-sm transition-colors"
+                                        >
+                                            ← {currentRoom ? 'Leave Room' : 'Back'}
+                                        </button>
                                     </motion.div>
                                 )}
 
@@ -686,15 +433,6 @@ export function TitleScreen({
                                                     className="w-full px-4 py-2 rounded-lg bg-white/20 text-white text-center text-2xl font-mono font-bold tracking-[0.4em] placeholder-white/30 outline-none focus:ring-2 focus:ring-white/30 uppercase"
                                                     autoFocus
                                                 />
-                                                {joinError && (
-                                                    <motion.div
-                                                        initial={{ opacity: 0, y: -5 }}
-                                                        animate={{ opacity: 1, y: 0 }}
-                                                        className="text-red-300 text-sm text-center mt-2"
-                                                    >
-                                                        {joinError}
-                                                    </motion.div>
-                                                )}
                                                 {isJoining && (
                                                     <div className="text-white/70 text-sm text-center mt-2">
                                                         Joining...
@@ -774,7 +512,7 @@ export function TitleScreen({
                                     (theme, index) => (
                                         <motion.button
                                             key={theme.id}
-                                            onClick={() => handleThemeChange(theme)}
+                                            onClick={() => onThemeChange(theme)}
                                             className="relative px-6 py-4 min-h-[56px] rounded-xl text-left overflow-hidden group"
                                             initial={{ x: -20, opacity: 0 }}
                                             animate={{ x: 0, opacity: 1 }}

@@ -11,7 +11,7 @@ import { WinOverlay } from '../components/WinOverlay';
 import type { Card as CardType, PlayerId } from '../game/types';
 import type { CardTheme } from '../themes/themes';
 import type { Room } from '../lib/multiplayer';
-import { subscribeToRoom, updateGameState, endGame } from '../lib/multiplayer';
+import { subscribeToRoom, updateGameState, endGame, endGameByInactivity } from '../lib/multiplayer';
 
 export type GameMode = 'singleplayer' | 'multiplayer';
 
@@ -95,6 +95,11 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const [dealtCards, setDealtCards] = useState<Set<string>>(new Set());
     const [coinFlipResult, setCoinFlipResult] = useState<'P1' | 'P2' | null>(null);
     const [coinFlipAnimating, setCoinFlipAnimating] = useState(false);
+
+    // Move timer state (multiplayer only)
+    const [lastMoveAt, setLastMoveAt] = useState<string | null>(room?.last_move_at || null);
+    const [secondsRemaining, setSecondsRemaining] = useState(60);
+    const [gameEndedByInactivity, setGameEndedByInactivity] = useState(false);
 
     // Refs for measuring positions
     const deckRef = useRef<HTMLDivElement>(null);
@@ -184,6 +189,17 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         if (mode !== 'multiplayer' || !room) return;
 
         const unsubscribe = subscribeToRoom(room.id, (updatedRoom) => {
+            // Check if game ended by inactivity (status changed to finished but no winner)
+            if (updatedRoom.status === 'finished' && updatedRoom.game_state && !updatedRoom.game_state.winner) {
+                setGameEndedByInactivity(true);
+                return;
+            }
+
+            // Update last move timestamp for timer
+            if (updatedRoom.last_move_at) {
+                setLastMoveAt(updatedRoom.last_move_at);
+            }
+
             if (updatedRoom.game_state && !isProcessingRemoteUpdate.current) {
                 const remoteStateStr = JSON.stringify(updatedRoom.game_state);
 
@@ -232,6 +248,34 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             }
         }
     }, [mode, room?.id, state, isMyTurn, gamePhase]);
+
+    // === MOVE TIMER (Multiplayer only) ===
+    // Countdown timer based on lastMoveAt
+    useEffect(() => {
+        if (mode !== 'multiplayer' || !lastMoveAt || gamePhase !== 'playing' || state.winner || gameEndedByInactivity) return;
+
+        const updateTimer = () => {
+            const lastMove = new Date(lastMoveAt).getTime();
+            const now = Date.now();
+            const elapsed = Math.floor((now - lastMove) / 1000);
+            const remaining = Math.max(0, 60 - elapsed);
+            setSecondsRemaining(remaining);
+
+            // Timer expired - end the game
+            if (remaining === 0 && room) {
+                endGameByInactivity(room.id);
+                setGameEndedByInactivity(true);
+            }
+        };
+
+        // Update immediately
+        updateTimer();
+
+        // Update every second
+        const interval = setInterval(updateTimer, 1000);
+
+        return () => clearInterval(interval);
+    }, [mode, lastMoveAt, gamePhase, state.winner, gameEndedByInactivity, room]);
 
     // === DEALING ANIMATION ===
     // Start dealing animation once layout is measured
@@ -970,6 +1014,80 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 </motion.div>
                             )}
                     </>
+                )}
+            </AnimatePresence>
+
+            {/* Move Timer (multiplayer only) */}
+            {mode === 'multiplayer' && gamePhase === 'playing' && !state.winner && !gameEndedByInactivity && (
+                <motion.div
+                    className="fixed bottom-6 left-6 z-40"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
+                    <div
+                        className="px-4 py-3 rounded-xl backdrop-blur-sm"
+                        style={{
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: `2px solid ${secondsRemaining <= 10 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(255, 255, 255, 0.1)'}`,
+                        }}
+                    >
+                        <div className="flex items-center gap-2">
+                            <span
+                                className={`text-2xl font-mono font-bold ${
+                                    secondsRemaining <= 10 ? 'text-red-400' : 'text-white'
+                                }`}
+                            >
+                                {Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, '0')}
+                            </span>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Inactivity overlay */}
+            <AnimatePresence>
+                {gameEndedByInactivity && (
+                    <motion.div
+                        className="fixed inset-0 z-50 flex items-center justify-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                    >
+                        {/* Backdrop */}
+                        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+                        {/* Modal */}
+                        <motion.div
+                            className="relative z-10 p-8 rounded-2xl text-center max-w-sm mx-4"
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            style={{
+                                background: 'linear-gradient(135deg, #2d1b4e 0%, #1a0f2e 100%)',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+                            }}
+                        >
+                            <h2 className="text-2xl font-bold text-white mb-2">
+                                Game Ended
+                            </h2>
+                            <p className="text-white/70 mb-6">
+                                The game ended due to inactivity.
+                            </p>
+
+                            <motion.button
+                                onClick={onExit}
+                                className="px-8 py-3 rounded-xl font-bold text-white"
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                style={{
+                                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                                    boxShadow: '0 4px 20px rgba(139, 92, 246, 0.4)',
+                                }}
+                            >
+                                Back to Menu
+                            </motion.button>
+                        </motion.div>
+                    </motion.div>
                 )}
             </AnimatePresence>
 

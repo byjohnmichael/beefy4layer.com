@@ -2,23 +2,15 @@ import { supabase } from './supabase';
 import type { GameState } from '../game/types';
 
 // Types for multiplayer
-export interface Player {
-    id: string;
-    client_id: string;
-    username: string;
-    theme_id: string;
-}
-
 export interface Room {
     id: string;
     code: string;
-    host_id: string;
-    guest_id: string | null;
+    host_id: string; // client_id of host
+    guest_id: string | null; // client_id of guest
     status: 'waiting' | 'playing' | 'finished';
     game_state: GameState | null;
     current_player: 'host' | 'guest' | null;
-    host?: Player;
-    guest?: Player;
+    last_move_at: string | null; // ISO timestamp of last move for timer
 }
 
 // Generate a unique client ID (stored in localStorage)
@@ -32,11 +24,6 @@ export function getOrCreateClientId(): string {
     return clientId;
 }
 
-// Get stored username from localStorage
-export function getStoredUsername(): string | null {
-    return localStorage.getItem('beeft_username');
-}
-
 // Generate a 4-letter room code
 function generateRoomCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // No I, O to avoid confusion
@@ -47,114 +34,10 @@ function generateRoomCode(): string {
     return code;
 }
 
-// === PLAYER FUNCTIONS ===
-
-export async function checkUsernameAvailable(username: string): Promise<boolean> {
-    const clientId = getOrCreateClientId();
-
-    // Check if username exists, excluding our own record
-    const { data, error } = await supabase
-        .from('players')
-        .select('id, client_id')
-        .eq('username', username)
-        .maybeSingle();
-
-    if (error) {
-        console.error('Error checking username:', error);
-        return false;
-    }
-
-    // Available if no one has it, or if it's our own record
-    return data === null || data.client_id === clientId;
-}
-
-export async function registerPlayer(username: string, themeId: string): Promise<Player | null> {
-    const clientId = getOrCreateClientId();
-
-    // First check if this client already has a player record
-    const { data: existing } = await supabase
-        .from('players')
-        .select('*')
-        .eq('client_id', clientId)
-        .maybeSingle();
-
-    if (existing) {
-        // Update existing player
-        const { data, error } = await supabase
-            .from('players')
-            .update({ username, theme_id: themeId, last_seen: new Date().toISOString() })
-            .eq('client_id', clientId)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error updating player:', error);
-            return null;
-        }
-
-        localStorage.setItem('beeft_username', username);
-        localStorage.setItem('beeft_player_id', data.id);
-        return data;
-    }
-
-    // Create new player
-    const { data, error } = await supabase
-        .from('players')
-        .insert({ client_id: clientId, username, theme_id: themeId })
-        .select()
-        .single();
-
-    if (error) {
-        console.error('Error creating player:', error);
-        return null;
-    }
-
-    localStorage.setItem('beeft_username', username);
-    localStorage.setItem('beeft_player_id', data.id);
-    return data;
-}
-
-export async function getPlayer(): Promise<Player | null> {
-    const clientId = getOrCreateClientId();
-
-    const { data, error } = await supabase
-        .from('players')
-        .select('*')
-        .eq('client_id', clientId)
-        .maybeSingle();
-
-    if (error) {
-        console.error('Error getting player:', error);
-        return null;
-    }
-
-    return data;
-}
-
-export async function updatePlayerTheme(themeId: string): Promise<boolean> {
-    const clientId = getOrCreateClientId();
-
-    const { error } = await supabase
-        .from('players')
-        .update({ theme_id: themeId })
-        .eq('client_id', clientId);
-
-    if (error) {
-        console.error('Error updating theme:', error);
-        return false;
-    }
-
-    return true;
-}
-
 // === ROOM FUNCTIONS ===
 
 export async function createRoom(): Promise<Room | null> {
-    const playerId = localStorage.getItem('beeft_player_id');
-    if (!playerId) {
-        console.error('No player ID found');
-        return null;
-    }
+    const clientId = getOrCreateClientId();
 
     // Generate unique room code (retry if collision)
     let code = generateRoomCode();
@@ -165,16 +48,10 @@ export async function createRoom(): Promise<Room | null> {
             .from('rooms')
             .insert({
                 code,
-                host_id: playerId,
+                host_id: clientId,
                 status: 'waiting',
             })
-            .select(
-                `
-        *,
-        host:host_id(id, username, theme_id),
-        guest:guest_id(id, username, theme_id)
-      `,
-            )
+            .select('*')
             .single();
 
         if (error) {
@@ -196,21 +73,12 @@ export async function createRoom(): Promise<Room | null> {
 }
 
 export async function joinRoom(code: string): Promise<{ room: Room | null; error: string | null }> {
-    const playerId = localStorage.getItem('beeft_player_id');
-    if (!playerId) {
-        return { room: null, error: 'Not logged in' };
-    }
+    const clientId = getOrCreateClientId();
 
     // Find the room
     const { data: room, error: findError } = await supabase
         .from('rooms')
-        .select(
-            `
-      *,
-      host:host_id(id, username, theme_id),
-      guest:guest_id(id, username, theme_id)
-    `,
-        )
+        .select('*')
         .eq('code', code.toUpperCase())
         .maybeSingle();
 
@@ -227,27 +95,21 @@ export async function joinRoom(code: string): Promise<{ room: Room | null; error
         return { room: null, error: 'Game already in progress' };
     }
 
-    if (room.host_id === playerId) {
+    if (room.host_id === clientId) {
         // Already the host, just return the room
         return { room, error: null };
     }
 
-    if (room.guest_id && room.guest_id !== playerId) {
+    if (room.guest_id && room.guest_id !== clientId) {
         return { room: null, error: 'Room is full' };
     }
 
-    // Join as guest
+    // Join as guest - this will trigger auto-start via the subscription
     const { data: updatedRoom, error: joinError } = await supabase
         .from('rooms')
-        .update({ guest_id: playerId })
+        .update({ guest_id: clientId })
         .eq('id', room.id)
-        .select(
-            `
-      *,
-      host:host_id(id, username, theme_id),
-      guest:guest_id(id, username, theme_id)
-    `,
-        )
+        .select('*')
         .single();
 
     if (joinError) {
@@ -259,19 +121,18 @@ export async function joinRoom(code: string): Promise<{ room: Room | null; error
 }
 
 export async function leaveRoom(roomId: string): Promise<boolean> {
-    const playerId = localStorage.getItem('beeft_player_id');
-    if (!playerId) return false;
+    const clientId = getOrCreateClientId();
 
     // Get the room to check if we're host or guest
     const { data: room } = await supabase.from('rooms').select('*').eq('id', roomId).single();
 
     if (!room) return false;
 
-    if (room.host_id === playerId) {
+    if (room.host_id === clientId) {
         // Host leaving - delete the room
         const { error } = await supabase.from('rooms').delete().eq('id', roomId);
         return !error;
-    } else if (room.guest_id === playerId) {
+    } else if (room.guest_id === clientId) {
         // Guest leaving - just remove guest
         const { error } = await supabase.from('rooms').update({ guest_id: null }).eq('id', roomId);
         return !error;
@@ -281,13 +142,12 @@ export async function leaveRoom(roomId: string): Promise<boolean> {
 }
 
 export async function startGame(roomId: string, initialState: GameState): Promise<boolean> {
-    const playerId = localStorage.getItem('beeft_player_id');
-    if (!playerId) return false;
+    const clientId = getOrCreateClientId();
 
     // Verify we're the host
     const { data: room } = await supabase.from('rooms').select('*').eq('id', roomId).single();
 
-    if (!room || room.host_id !== playerId) {
+    if (!room || room.host_id !== clientId) {
         console.error('Only host can start the game');
         return false;
     }
@@ -306,6 +166,7 @@ export async function startGame(roomId: string, initialState: GameState): Promis
             status: 'playing',
             game_state: initialState,
             current_player: firstPlayer,
+            last_move_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
         .eq('id', roomId);
@@ -323,12 +184,14 @@ export async function updateGameState(
     gameState: GameState,
     nextPlayer: 'host' | 'guest',
 ): Promise<boolean> {
+    const now = new Date().toISOString();
     const { error } = await supabase
         .from('rooms')
         .update({
             game_state: gameState,
             current_player: nextPlayer,
-            updated_at: new Date().toISOString(),
+            last_move_at: now,
+            updated_at: now,
         })
         .eq('id', roomId);
 
@@ -358,6 +221,44 @@ export async function endGame(roomId: string, gameState: GameState): Promise<boo
     return true;
 }
 
+// End game due to inactivity (timer expired)
+export async function endGameByInactivity(roomId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('rooms')
+        .update({
+            status: 'finished',
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', roomId);
+
+    if (error) {
+        console.error('Error ending game by inactivity:', error);
+        return false;
+    }
+
+    return true;
+}
+
+// Find an active game for the current client
+export async function findActiveGame(): Promise<Room | null> {
+    const clientId = getOrCreateClientId();
+
+    // Look for rooms where we're either host or guest and game is in progress
+    const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('status', 'playing')
+        .or(`host_id.eq.${clientId},guest_id.eq.${clientId}`)
+        .maybeSingle();
+
+    if (error) {
+        console.error('Error finding active game:', error);
+        return null;
+    }
+
+    return data;
+}
+
 // === REALTIME SUBSCRIPTIONS ===
 
 export function subscribeToRoom(roomId: string, onUpdate: (room: Room) => void) {
@@ -372,16 +273,10 @@ export function subscribeToRoom(roomId: string, onUpdate: (room: Room) => void) 
                 filter: `id=eq.${roomId}`,
             },
             async (_payload) => {
-                // Fetch full room data with player info
+                // Fetch full room data
                 const { data } = await supabase
                     .from('rooms')
-                    .select(
-                        `
-            *,
-            host:host_id(id, username, theme_id),
-            guest:guest_id(id, username, theme_id)
-          `,
-                    )
+                    .select('*')
                     .eq('id', roomId)
                     .single();
 
