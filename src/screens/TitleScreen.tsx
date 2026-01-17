@@ -108,24 +108,13 @@ export function TitleScreen({
         setIsJoining(false);
     };
 
-    // Leave room
+    // Leave room (go back to create/join buttons)
     const handleLeaveRoom = async () => {
         if (currentRoom) {
             await leaveRoom(currentRoom.id);
         }
         setCurrentRoom(null);
-        setMultiplayerMode('menu');
-        setJoinCode('');
-        setJoinError(null);
-    };
-
-    // Back to main menu
-    const handleBackToMenu = () => {
-        if (currentRoom) {
-            handleLeaveRoom();
-        }
-        setMultiplayerMode('menu');
-        setView('title');
+        setMultiplayerMode('creating');
         setJoinCode('');
         setJoinError(null);
     };
@@ -265,65 +254,120 @@ export function TitleScreen({
                             </motion.button>
 
                             {/* Multiplayer section */}
-                            <AnimatePresence mode="wait">
-                                {multiplayerMode === 'menu' && (
-                                    <motion.button
-                                        key="multiplayer-btn"
-                                        onClick={() => setMultiplayerMode('creating')}
-                                        className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        whileHover={{ scale: 1.03 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        style={{
-                                            background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-                                            boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
-                                        }}
-                                    >
-                                        <span className="text-white">Multiplayer</span>
-                                        <motion.div
-                                            className="absolute inset-0 bg-gradient-to-r from-purple-300/0 via-purple-300/30 to-purple-300/0"
-                                            initial={{ x: '-100%' }}
-                                            whileHover={{ x: '100%' }}
-                                            transition={{ duration: 0.6 }}
-                                        />
-                                    </motion.button>
-                                )}
-
-                                {(multiplayerMode === 'creating' || multiplayerMode === 'waiting') && (
-                                    <motion.div
-                                        key="create-room"
-                                        className="flex flex-col gap-3"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                    >
-                                        {/* Room Code Display or Create Button */}
-                                        {currentRoom ? (
+                            <motion.div layout transition={{ duration: 0.25, ease: 'easeInOut' }}>
+                                <AnimatePresence mode="wait">
+                                    {multiplayerMode === 'menu' && (
+                                        <motion.button
+                                            key="multiplayer-btn"
+                                            onClick={() => setMultiplayerMode('creating')}
+                                            className="relative w-full px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                            whileHover={{ scale: 1.03 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                                                boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
+                                            }}
+                                        >
+                                            <span className="text-white">Multiplayer</span>
                                             <motion.div
-                                                className="relative px-8 py-4 text-center rounded-xl"
-                                                initial={{ scale: 0.9 }}
-                                                animate={{ scale: 1 }}
-                                                style={{
-                                                    background:
-                                                        'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                                                    boxShadow: '0 8px 24px rgba(34, 197, 94, 0.4)',
-                                                }}
-                                            >
-                                                <div className="text-white/70 text-xs uppercase tracking-wider mb-1">
-                                                    {isHost ? 'Share This Code' : 'Joining...'}
-                                                </div>
-                                                <div className="text-white text-3xl font-mono font-bold tracking-[0.3em]">
-                                                    {currentRoom.code}
-                                                </div>
-                                                {isHost && (
-                                                    <div className="text-white/60 text-xs mt-2">
-                                                        Waiting for opponent...
+                                                className="absolute inset-0 bg-gradient-to-r from-purple-300/0 via-purple-300/30 to-purple-300/0"
+                                                initial={{ x: '-100%' }}
+                                                whileHover={{ x: '100%' }}
+                                                transition={{ duration: 0.6 }}
+                                            />
+                                        </motion.button>
+                                    )}
+
+                                    {(multiplayerMode === 'creating' || multiplayerMode === 'waiting') && (
+                                        <motion.div
+                                            key="create-room"
+                                            className="flex flex-col gap-3"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                        >
+                                            {/* Room Code Display or Create Button */}
+                                            {currentRoom ? (
+                                                <motion.div
+                                                    className="relative px-8 py-4 text-center rounded-xl"
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                                    style={{
+                                                        background:
+                                                            'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                                                        boxShadow: '0 8px 24px rgba(34, 197, 94, 0.4)',
+                                                    }}
+                                                >
+                                                    {/* Close button - goes back to create/join */}
+                                                    <button
+                                                        onClick={handleLeaveRoom}
+                                                        className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                                                    >
+                                                        <span className="text-white/80 text-sm leading-none">×</span>
+                                                    </button>
+                                                    <div className="text-white/70 text-xs uppercase tracking-wider mb-1">
+                                                        {isHost ? 'Share This Code' : 'Joining...'}
                                                     </div>
-                                                )}
-                                            </motion.div>
-                                        ) : (
+                                                    <div className="text-white text-3xl font-mono font-bold tracking-[0.3em]">
+                                                        {currentRoom.code}
+                                                    </div>
+                                                    {isHost && (
+                                                        <div className="text-white/60 text-xs mt-2">
+                                                            Waiting for opponent...
+                                                        </div>
+                                                    )}
+                                                </motion.div>
+                                            ) : (
+                                                <motion.button
+                                                    onClick={handleCreateRoom}
+                                                    className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
+                                                    whileHover={{ scale: 1.03 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                    style={{
+                                                        background:
+                                                            'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                                                        boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
+                                                    }}
+                                                >
+                                                    <span className="text-white">Create a Room</span>
+                                                </motion.button>
+                                            )}
+
+                                            {/* Join Room Button */}
+                                            {!currentRoom && (
+                                                <motion.button
+                                                    onClick={() => setMultiplayerMode('joining')}
+                                                    className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
+                                                    whileHover={{ scale: 1.03 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                    style={{
+                                                        background:
+                                                            'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                                        boxShadow: '0 8px 24px rgba(99, 102, 241, 0.4)',
+                                                    }}
+                                                >
+                                                    <span className="text-white">Join a Room</span>
+                                                </motion.button>
+                                            )}
+                                        </motion.div>
+                                    )}
+
+                                    {multiplayerMode === 'joining' && !currentRoom && (
+                                        <motion.div
+                                            key="join-room"
+                                            className="flex flex-col gap-3"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                        >
+                                            {/* Create Room Button */}
                                             <motion.button
                                                 onClick={handleCreateRoom}
                                                 className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
@@ -337,71 +381,8 @@ export function TitleScreen({
                                             >
                                                 <span className="text-white">Create a Room</span>
                                             </motion.button>
-                                        )}
 
-                                        {/* Join Room Button/Input */}
-                                        {!currentRoom && (
-                                            <motion.div
-                                                initial={{ opacity: 0, y: -10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                transition={{ delay: 0.1 }}
-                                            >
-                                                <motion.button
-                                                    onClick={() => setMultiplayerMode('joining')}
-                                                    className="w-full relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
-                                                    whileHover={{ scale: 1.03 }}
-                                                    whileTap={{ scale: 0.98 }}
-                                                    style={{
-                                                        background:
-                                                            'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                                                        boxShadow:
-                                                            '0 8px 24px rgba(99, 102, 241, 0.4)',
-                                                    }}
-                                                >
-                                                    <span className="text-white">Join a Room</span>
-                                                </motion.button>
-                                            </motion.div>
-                                        )}
-
-                                        {/* Cancel/Leave button */}
-                                        <button
-                                            onClick={handleBackToMenu}
-                                            className="text-white/50 hover:text-white text-sm transition-colors"
-                                        >
-                                            ← {currentRoom ? 'Leave Room' : 'Back'}
-                                        </button>
-                                    </motion.div>
-                                )}
-
-                                {multiplayerMode === 'joining' && !currentRoom && (
-                                    <motion.div
-                                        key="join-room"
-                                        className="flex flex-col gap-3"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                    >
-                                        {/* Create Room Button (secondary) */}
-                                        <motion.button
-                                            onClick={handleCreateRoom}
-                                            className="relative px-8 py-4 text-xl font-bold rounded-xl overflow-hidden"
-                                            whileHover={{ scale: 1.03 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            style={{
-                                                background:
-                                                    'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-                                                boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4)',
-                                            }}
-                                        >
-                                            <span className="text-white">Create a Room</span>
-                                        </motion.button>
-
-                                        {/* Join Room Input */}
-                                        <motion.div
-                                            className="relative"
-                                            initial={{ scale: 0.9 }}
-                                            animate={{ scale: 1 }}
-                                        >
+                                            {/* Join Room Input */}
                                             <div
                                                 className="px-6 py-4 rounded-xl"
                                                 style={{
@@ -440,17 +421,9 @@ export function TitleScreen({
                                                 )}
                                             </div>
                                         </motion.div>
-
-                                        {/* Back button */}
-                                        <button
-                                            onClick={handleBackToMenu}
-                                            className="text-white/50 hover:text-white text-sm transition-colors"
-                                        >
-                                            ← Back
-                                        </button>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                    )}
+                                </AnimatePresence>
+                            </motion.div>
 
                             {/* Themes button */}
                             <motion.button
@@ -459,6 +432,7 @@ export function TitleScreen({
                                 whileHover={{ scale: 1.03 }}
                                 whileTap={{ scale: 0.98 }}
                                 layout
+                                transition={{ layout: { duration: 0.25, ease: 'easeInOut' } }}
                                 style={{
                                     background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
                                     boxShadow: '0 8px 24px rgba(124, 58, 237, 0.4)',
