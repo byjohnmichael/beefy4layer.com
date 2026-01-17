@@ -836,21 +836,24 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                     />
                 </div>
 
-                {/* Turn indicator chip - positioned to right of piles, mirroring deck position */}
+                {/* Turn indicator chip - positioned to right of piles, vertically aligned with face-down cards */}
                 <motion.div
-                    className="absolute w-14 h-14 flex items-center justify-center"
+                    className="fixed w-14 h-14 flex items-center justify-center"
                     style={{
                         // Piles are 304px wide (4×64 + 3×16), so right edge is 152px from center
                         // Deck gap is 24px (mr-6), so chip should be at same distance from right edge
                         left: 'calc(50% + 152px + 24px)', // 50% + piles half-width + gap
                     }}
                     animate={{
-                        top:
-                            gamePhase === 'playing'
+                        // Use measured layout positions so chip aligns with face-down cards
+                        // Subtract 28px (half of chip's 56px height) to center vertically
+                        top: layout
+                            ? gamePhase === 'playing'
                                 ? isMyTurn
-                                    ? 'calc(100% - 240px)'  // Position of my chip
-                                    : '56px'                // Position of opponent's chip
-                                : 'calc(50% - 28px)',       // Position of chip during dealing/coinFlip (centered, 28px = half of 56px chip height)
+                                    ? layout.p1FaceDownCenter.y - 28
+                                    : layout.p2FaceDownCenter.y - 28
+                                : window.innerHeight / 2 - 28
+                            : window.innerHeight / 2 - 28,
                         rotate: coinFlipAnimating ? 360 : 0, // Spin during coin flip
                     }}
                     transition={{
@@ -1020,16 +1023,18 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 zIndex: 200,
                             }}
                             animate={{
+                                // Only move to hand on failure (retreating/replacing/done phases)
+                                // On success, stay at pile position
                                 x:
-                                    faceDownPlay.phase === 'retreating' ||
+                                    (faceDownPlay.phase === 'retreating' ||
                                     faceDownPlay.phase === 'replacing' ||
-                                    faceDownPlay.phase === 'done'
+                                    faceDownPlay.phase === 'done') && !faceDownPlay.isSuccess
                                         ? faceDownPlay.handPos.x - 32
                                         : faceDownPlay.pilePos.x - 32,
                                 y:
-                                    faceDownPlay.phase === 'retreating' ||
+                                    (faceDownPlay.phase === 'retreating' ||
                                     faceDownPlay.phase === 'replacing' ||
-                                    faceDownPlay.phase === 'done'
+                                    faceDownPlay.phase === 'done') && !faceDownPlay.isSuccess
                                         ? faceDownPlay.handPos.y - 48
                                         : faceDownPlay.pilePos.y -
                                           48 +
