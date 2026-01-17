@@ -31,5 +31,6 @@ export function createInitialState(): GameState {
         selectedCard: null,
         revealedCard: null,
         pendingPileIndex: null,
+        pendingDrawGamble: null,
     };
 }

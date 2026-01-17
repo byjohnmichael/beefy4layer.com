@@ -41,6 +41,7 @@ export interface GameState {
     selectedCard: { source: 'hand' | 'faceDown'; index: number } | null;
     revealedCard: Card | null; // For face-down reveal animation
     pendingPileIndex: number | null; // For resolving face-down plays
+    pendingDrawGamble: Card | null; // Card being gambled from deck draw
 }
 
 export type GameAction =
@@ -51,5 +52,8 @@ export type GameAction =
     | { type: 'SELECT_PILE'; pileIndex: number }
     | { type: 'CLEAR_SELECTIONS' }
     | { type: 'DRAW_FROM_DECK' }
+    | { type: 'START_DRAW_GAMBLE' }
+    | { type: 'CANCEL_DRAW_GAMBLE' }
+    | { type: 'PLAY_DRAW_GAMBLE'; pileIndex: number }
     | { type: 'SET_FIRST_PLAYER'; player: PlayerId }
     | { type: 'SYNC_STATE'; state: GameState };

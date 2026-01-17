@@ -37,19 +37,27 @@ export function getBotMove(state: GameState): GameAction | null {
         return { type: 'SELECT_FACEDOWN_CARD', index: randomIndex };
     }
 
-    // Strategy 3: Draw from deck
+    // Strategy 3: Draw and gamble from deck
     if (state.deck.length > 0) {
-        return { type: 'DRAW_FROM_DECK' };
+        return { type: 'START_DRAW_GAMBLE' };
     }
 
     return null;
 }
 
 /**
- * Get the pile selection for bot after selecting a card
+ * Get the pile selection for bot after selecting a card or starting draw gamble
  */
 export function getBotPileSelection(state: GameState): GameAction | null {
     if (state.currentPlayer !== 'P2') return null;
+
+    // Handle draw gamble pile selection
+    if (state.pendingDrawGamble) {
+        // Pick a random pile for draw gamble
+        const randomPile = Math.floor(Math.random() * 4);
+        return { type: 'PLAY_DRAW_GAMBLE', pileIndex: randomPile };
+    }
+
     if (!state.selectedCard) return null;
 
     const { source, index } = state.selectedCard;

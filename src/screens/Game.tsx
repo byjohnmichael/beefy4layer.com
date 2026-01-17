@@ -2,7 +2,7 @@ import { useReducer, useEffect, useState, useCallback, useRef, useLayoutEffect }
 import { motion, AnimatePresence } from 'framer-motion';
 import { gameReducer } from '../game/reducer';
 import { createInitialState } from '../game/initialState';
-import { getLegalPiles, canPlay, SYMBOLS } from '../game/engine/rules';
+import { getLegalPiles, canPlay } from '../game/engine/rules';
 import { getBotMove, getBotPileSelection } from '../game/bot';
 import { CardLayer } from '../components/CardLayer';
 import { Card } from '../components/Card';
@@ -56,7 +56,22 @@ type FaceDownPlayAnimation = {
     replacementCard: CardType | null;
 };
 
+type DrawGambleAnimation = {
+    id: string;
+    card: CardType;
+    pileIndex: number;
+    isSuccess: boolean;
+    phase: 'moving' | 'revealed' | 'retreating' | 'done';
+    startPos: { x: number; y: number };
+    pilePos: { x: number; y: number };
+    handPos: { x: number; y: number };
+};
+
 type GamePhase = 'dealing' | 'coinFlip' | 'playing';
+
+// Check if we're running on localhost
+const isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) {
     // For multiplayer, use the room's game state if available
@@ -64,6 +79,9 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         mode === 'multiplayer' && room?.game_state ? room.game_state : createInitialState();
 
     const [state, dispatch] = useReducer(gameReducer, initialState);
+
+    // Debug mode state (only available on localhost)
+    const [showDebug, setShowDebug] = useState(isLocalhost);
 
     // Bot is only active in singleplayer mode
     const isBotEnabled = mode === 'singleplayer';
@@ -86,6 +104,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const [drawAnimation, setDrawAnimation] = useState<DrawAnimation | null>(null);
     const [pendingDraw, setPendingDraw] = useState<{ target: 'p1' | 'p2' } | null>(null);
     const [faceDownPlay, setFaceDownPlay] = useState<FaceDownPlayAnimation | null>(null);
+    const [drawGambleAnimation, setDrawGambleAnimation] = useState<DrawGambleAnimation | null>(null);
 
     // Game intro animation state
     // In multiplayer, skip dealing animation since game state is already set
@@ -95,6 +114,10 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const [dealtCards, setDealtCards] = useState<Set<string>>(new Set());
     const [coinFlipResult, setCoinFlipResult] = useState<'P1' | 'P2' | null>(null);
     const [coinFlipAnimating, setCoinFlipAnimating] = useState(false);
+
+    // 5-second lockout: pre-decide coin flip and track game start time
+    const [gameStartTime, setGameStartTime] = useState<number | null>(null);
+    const [preDecidedFirstPlayer, setPreDecidedFirstPlayer] = useState<'P1' | 'P2' | null>(null);
 
     // Move timer state (multiplayer only)
     const [lastMoveAt, setLastMoveAt] = useState<string | null>(room?.last_move_at || null);
@@ -182,6 +205,20 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         const timer = setTimeout(measureLayout, 50);
         return () => clearTimeout(timer);
     }, [state.players.P1.faceDown, state.players.P2.faceDown, measureLayout]);
+
+    // Debug toggle keyboard handler (localhost only)
+    useEffect(() => {
+        if (!isLocalhost) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'd' || e.key === 'D') {
+                setShowDebug(prev => !prev);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     // === MULTIPLAYER SYNC ===
     // Subscribe to room updates in multiplayer
@@ -282,6 +319,12 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     useEffect(() => {
         if (gamePhase !== 'dealing' || !layout) return;
 
+        // PRE-DECIDE coin flip IMMEDIATELY (before any animation)
+        // This ensures the result is known even if animations break
+        const firstPlayer = Math.random() < 0.5 ? 'P1' : 'P2';
+        setPreDecidedFirstPlayer(firstPlayer);
+        setGameStartTime(Date.now());
+
         // Build the deal sequence:
         // 1. Deal 4 face-up cards to center piles
         // 2. Alternate dealing face-down cards (P1, P2, P1, P2, P1, P2)
@@ -325,20 +368,12 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             setGamePhase('coinFlip');
             setCoinFlipAnimating(true);
 
-            // Coin flip animation duration
+            // Coin flip animation duration - use pre-decided result
             setTimeout(() => {
-                // Randomly determine first player
-                const firstPlayer = Math.random() < 0.5 ? 'P1' : 'P2';
                 setCoinFlipResult(firstPlayer);
                 setCoinFlipAnimating(false);
-
-                // After coin settles, start the game
-                setTimeout(() => {
-                    setGamePhase('playing');
-                    // Set the first player in game state
-                    dispatch({ type: 'SET_FIRST_PLAYER', player: firstPlayer });
-                }, 800);
             }, 1500); // Coin flip duration
+            // Note: Game start is handled by the 5-second lockout effect below
         }, delay + 500);
     }, [
         gamePhase,
@@ -349,27 +384,22 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         state.currentPlayer,
     ]);
 
-    const triggerDrawAnimation = useCallback(
-        (target: 'p1' | 'p2') => {
-            if (!layout || drawAnimation || state.deck.length === 0) return;
+    // === 5-SECOND LOCKOUT ===
+    // Players cannot act until 5 seconds after game start, regardless of animation state
+    // This ensures the game becomes playable even if animations break
+    useEffect(() => {
+        if (!gameStartTime || gamePhase === 'playing' || !preDecidedFirstPlayer) return;
 
-            // Peek at the card that will be drawn (top of deck)
-            const cardToDraw = state.deck[state.deck.length - 1];
-            const endPos = target === 'p1' ? layout.p1HandCenter : layout.p2HandCenter;
+        const fiveSecondTimer = setTimeout(() => {
+            // Force game to start after 5 seconds
+            setCoinFlipAnimating(false);
+            setCoinFlipResult(preDecidedFirstPlayer);
+            setGamePhase('playing');
+            dispatch({ type: 'SET_FIRST_PLAYER', player: preDecidedFirstPlayer });
+        }, 5000);
 
-            setDrawAnimation({
-                id: `draw-${Date.now()}`,
-                card: cardToDraw,
-                startPos: layout.deckPos,
-                endPos,
-                flipToFaceUp: target === 'p1',
-                target,
-                progress: 'animating',
-            });
-            setPendingDraw({ target });
-        },
-        [layout, drawAnimation, state.deck],
-    );
+        return () => clearTimeout(fiveSecondTimer);
+    }, [gameStartTime, gamePhase, preDecidedFirstPlayer]);
 
     // Function to trigger face-down play animation
     const triggerFaceDownPlayAnimation = useCallback(
@@ -422,9 +452,45 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         [layout, faceDownPlay, state],
     );
 
+    // Function to trigger draw gamble play animation
+    const triggerDrawGambleAnimation = useCallback(
+        (pileIndex: number, player: 'P1' | 'P2') => {
+            if (!layout || drawGambleAnimation || !state.pendingDrawGamble) return;
+
+            const card = state.pendingDrawGamble;
+
+            // Get pile top card to check success
+            const pile = state.centerPiles[pileIndex];
+            const pileTop = pile[pile.length - 1];
+            const isSuccess = canPlay(card, pileTop);
+
+            setDrawGambleAnimation({
+                id: `dg-${Date.now()}`,
+                card,
+                pileIndex,
+                isSuccess,
+                phase: 'moving',
+                startPos: layout.deckPos,
+                pilePos: layout.pilePositions[pileIndex],
+                handPos: player === 'P1' ? layout.p1HandCenter : layout.p2HandCenter,
+            });
+        },
+        [layout, drawGambleAnimation, state.pendingDrawGamble, state.centerPiles],
+    );
+
     // Bot AI - acts instantly after initial delay
     const executeBotMove = useCallback(() => {
-        if (state.currentPlayer !== 'P2' || state.winner || drawAnimation || faceDownPlay) return;
+        if (state.currentPlayer !== 'P2' || state.winner || drawAnimation || faceDownPlay || drawGambleAnimation) return;
+
+        // Check if bot needs to select a pile for draw gamble
+        if (state.pendingDrawGamble) {
+            const pileAction = getBotPileSelection(state);
+            if (pileAction && pileAction.type === 'PLAY_DRAW_GAMBLE') {
+                // Trigger draw gamble animation for bot
+                triggerDrawGambleAnimation(pileAction.pileIndex, 'P2');
+            }
+            return;
+        }
 
         if (state.selectedCard) {
             const pileAction = getBotPileSelection(state);
@@ -444,15 +510,11 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         } else {
             const action = getBotMove(state);
             if (action) {
-                // If bot is drawing, trigger animation
-                if (action.type === 'DRAW_FROM_DECK') {
-                    triggerDrawAnimation('p2');
-                } else {
-                    dispatch(action);
-                }
+                // Dispatch the action - START_DRAW_GAMBLE will set pendingDrawGamble
+                dispatch(action);
             }
         }
-    }, [state, drawAnimation, faceDownPlay, triggerDrawAnimation, triggerFaceDownPlayAnimation]);
+    }, [state, drawAnimation, faceDownPlay, drawGambleAnimation, triggerFaceDownPlayAnimation, triggerDrawGambleAnimation]);
 
     useEffect(() => {
         // Only allow bot moves during playing phase
@@ -462,7 +524,8 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             state.currentPlayer === 'P2' &&
             !state.winner &&
             !drawAnimation &&
-            !faceDownPlay
+            !faceDownPlay &&
+            !drawGambleAnimation
         ) {
             const timer = setTimeout(executeBotMove, 500);
             return () => clearTimeout(timer);
@@ -473,23 +536,31 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         state.currentPlayer,
         state.winner,
         state.selectedCard,
+        state.pendingDrawGamble,
         drawAnimation,
         faceDownPlay,
+        drawGambleAnimation,
         executeBotMove,
     ]);
 
     const handleSelectHandCard = (index: number) => {
-        if (!isMyTurn) return;
+        if (gamePhase !== 'playing' || !isMyTurn) return;
         dispatch({ type: 'SELECT_HAND_CARD', index });
     };
 
     const handleSelectFaceDownCard = (index: number) => {
-        if (!isMyTurn) return;
+        if (gamePhase !== 'playing' || !isMyTurn) return;
         dispatch({ type: 'SELECT_FACEDOWN_CARD', index });
     };
 
     const handleSelectPile = (pileIndex: number) => {
-        if (!isMyTurn) return;
+        if (gamePhase !== 'playing' || !isMyTurn) return;
+
+        // Check if this is a draw gamble play - intercept for animation
+        if (state.pendingDrawGamble && layout && !drawGambleAnimation) {
+            triggerDrawGambleAnimation(pileIndex, 'P1');
+            return;
+        }
 
         // Check if this is a face-down card play - intercept for animation
         if (state.selectedCard?.source === 'faceDown' && layout && !faceDownPlay) {
@@ -589,19 +660,70 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         }
     }, [faceDownPlay]);
 
+    // Handle draw gamble animation phases
+    useEffect(() => {
+        if (!drawGambleAnimation) return;
+
+        const timings = {
+            moving: 500, // Time to move to pile and flip
+            revealed: 800, // Time to show success/fail indicator
+            retreating: 400, // Time to move to hand (fail only)
+        };
+
+        if (drawGambleAnimation.phase === 'moving') {
+            const timer = setTimeout(() => {
+                setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
+            }, timings.moving);
+            return () => clearTimeout(timer);
+        }
+
+        if (drawGambleAnimation.phase === 'revealed') {
+            const timer = setTimeout(() => {
+                if (drawGambleAnimation.isSuccess) {
+                    // Success - dispatch and finish
+                    setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'done' } : null));
+                } else {
+                    // Fail - start retreating to hand
+                    setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'retreating' } : null));
+                }
+            }, timings.revealed);
+            return () => clearTimeout(timer);
+        }
+
+        if (drawGambleAnimation.phase === 'retreating') {
+            const timer = setTimeout(() => {
+                setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'done' } : null));
+            }, timings.retreating);
+            return () => clearTimeout(timer);
+        }
+
+        if (drawGambleAnimation.phase === 'done') {
+            // Dispatch the actual state change
+            dispatch({ type: 'PLAY_DRAW_GAMBLE', pileIndex: drawGambleAnimation.pileIndex });
+
+            setTimeout(() => {
+                setDrawGambleAnimation(null);
+            }, 50);
+        }
+    }, [drawGambleAnimation]);
+
     const handleDrawFromDeck = () => {
-        if (!isMyTurn || drawAnimation) return;
-        // Always animate to bottom (p1 position) since that's where MY hand is rendered
-        triggerDrawAnimation('p1');
+        if (gamePhase !== 'playing' || !isMyTurn || drawGambleAnimation) return;
+        if (state.deck.length === 0) return;
+        // Enter draw gamble mode - highlights piles for player to choose
+        dispatch({ type: 'START_DRAW_GAMBLE' });
     };
 
     const isPlayerTurn = isMyTurn;
-    const hasSelection = state.selectedCard !== null;
+    const hasSelection = state.selectedCard !== null || state.pendingDrawGamble !== null;
     const canDraw =
-        isPlayerTurn && !hasSelection && !state.winner && state.deck.length > 0 && !drawAnimation;
+        gamePhase === 'playing' && isPlayerTurn && !state.selectedCard && !state.pendingDrawGamble && !state.winner && state.deck.length > 0 && !drawGambleAnimation;
 
     // Determine legal piles for highlighting
     const legalPileIndices = (() => {
+        // Draw gamble mode - all piles are legal
+        if (state.pendingDrawGamble) return [0, 1, 2, 3];
+
         if (!state.selectedCard) return [];
         const { source, index } = state.selectedCard;
         const player = state.players[state.currentPlayer];
@@ -616,13 +738,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     return (
         <div className="min-h-screen flex flex-col relative z-10 p-4 overflow-hidden">
             <div className="flex-1 flex flex-col justify-between py-2 relative">
-                {/* TOP: Opponent area */}
-                <div className="flex flex-col items-center gap-2">
-                    {/* Placeholder for opponent hand - positioned so cards are partially off-screen */}
+                {/* TOP: Opponent area - mirrored layout of bottom */}
+                <div className="w-full flex flex-col items-center gap-3">
+                    {/* Placeholder for opponent hand - same height as player hand */}
                     <div
                         ref={p2HandRef}
-                        className="flex items-center justify-center"
-                        style={{ minWidth: '400px', height: '48px', marginTop: '-30px' }}
+                        className="h-36 flex items-center justify-center"
+                        style={{ minWidth: '400px' }}
                     />
 
                     {/* Placeholder for opponent face-down cards */}
@@ -634,12 +756,12 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 </div>
 
                 {/* MIDDLE: Deck and pile placeholders */}
-                <div className="flex flex-col items-center gap-4">
+                <div className="w-full flex flex-col items-center gap-4">
                     <div className="relative flex items-center justify-center">
-                        {/* Deck placeholder */}
+                        {/* Deck placeholder - positioned to left of piles, vertically aligned */}
                         <motion.div
                             ref={deckRef}
-                            className={`absolute right-full mr-8 w-16 h-24 rounded-lg ${canDraw ? 'cursor-pointer' : ''}`}
+                            className={`absolute right-full mr-6 top-0 w-16 h-24 rounded-lg ${canDraw ? 'cursor-pointer' : ''}`}
                             whileHover={canDraw ? { scale: 1.05 } : {}}
                             whileTap={canDraw ? { scale: 0.95 } : {}}
                             onClick={canDraw ? handleDrawFromDeck : undefined}
@@ -659,25 +781,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 <>
                                     <div className="absolute inset-1 rounded border border-white/20" />
                                     <div className="w-full h-full flex items-center justify-center">
-                                        <span className="text-2xl opacity-40 text-white">{SYMBOLS.star}</span>
+                                        <span className="text-2xl font-bold opacity-60 text-white">{state.deck.length}</span>
                                     </div>
                                 </>
                             )}
-                            {/* Card count badge */}
-                            <div className="absolute -bottom-2 -right-2 min-w-6 h-6 px-1.5 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-xs font-bold text-white/90">
-                                {state.deck.length}
-                            </div>
-                            {canDraw && (
-                                <div
-                                    className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs whitespace-nowrap"
-                                    style={{ color: myTheme.secondary.solid }}
-                                >
-                                    Draw
-                                </div>
-                            )}
                         </motion.div>
 
-                        {/* Pile placeholders */}
+                        {/* Pile placeholders - these are centered */}
                         <div ref={pilesRef} className="flex gap-4">
                             {state.centerPiles.map((_, index) => {
                                 const isLegal = legalPileIndices.includes(index);
@@ -703,11 +813,14 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 );
                             })}
                         </div>
+
+                        {/* Chip placeholder - positioned to right of piles (same spacing as deck) */}
+                        <div className="absolute left-full ml-6 w-14 h-14" />
                     </div>
                 </div>
 
                 {/* BOTTOM: Player area */}
-                <div className="flex flex-col items-center gap-3">
+                <div className="w-full flex flex-col items-center gap-3">
                     {/* Placeholder for player face-down cards */}
                     <div
                         ref={p1FaceDownRef}
@@ -723,11 +836,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                     />
                 </div>
 
-                {/* Turn indicator chip */}
+                {/* Turn indicator chip - positioned to right of piles, mirroring deck position */}
                 <motion.div
                     className="absolute w-14 h-14 flex items-center justify-center"
                     style={{
-                        left: 'calc(50% + 170px)', // Always to the right of piles
+                        // Piles are 304px wide (4×64 + 3×16), so right edge is 152px from center
+                        // Deck gap is 24px (mr-6), so chip should be at same distance from right edge
+                        left: 'calc(50% + 152px + 24px)', // 50% + piles half-width + gap
                     }}
                     animate={{
                         top:
@@ -735,7 +850,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 ? isMyTurn
                                     ? 'calc(100% - 240px)'  // Position of my chip
                                     : '56px'                // Position of opponent's chip
-                                : 'calc(50% - 92px)',       // Position of chip during dealing/coinFlip
+                                : 'calc(50% - 28px)',       // Position of chip during dealing/coinFlip (centered, 28px = half of 56px chip height)
                         rotate: coinFlipAnimating ? 360 : 0, // Spin during coin flip
                     }}
                     transition={{
@@ -776,15 +891,42 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                         faceDownPlay?.phase === 'replacing'
                             ? faceDownPlay.replacementCard?.id
                             : undefined,
+                        drawGambleAnimation?.card.id,
                     ].filter((id): id is string => !!id)}
                     myTheme={myTheme}
                     dealtCards={dealtCards}
                     isDealing={gamePhase === 'dealing'}
                     myPlayerId={myPlayerId}
+                    pendingDrawGamble={state.pendingDrawGamble}
                 />
             )}
 
-            {/* Deck draw animation - card pulled from under the deck */}
+            {/* Deck overlay - renders on top of animated cards so they appear to slide out from underneath */}
+            {layout && state.deck.length > 0 && (drawAnimation || (faceDownPlay?.phase === 'replacing') || drawGambleAnimation || gamePhase === 'dealing') && (
+                <div
+                    className="fixed pointer-events-none"
+                    style={{
+                        left: layout.deckPos.x - 32,
+                        top: layout.deckPos.y - 48,
+                        width: 64,
+                        height: 96,
+                        zIndex: 40,
+                        background: myTheme.neutral.gradient,
+                        borderRadius: 8,
+                        boxShadow: `0 4px 12px ${myTheme.neutral.glow}`,
+                    }}
+                >
+                    <div
+                        className="absolute rounded border border-white/20"
+                        style={{ inset: 4 }}
+                    />
+                    <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-2xl font-bold opacity-60 text-white">{state.deck.length}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Deck draw animation - card pulled from bottom of deck */}
             <AnimatePresence mode="wait">
                 {drawAnimation && (
                     <motion.div
@@ -792,9 +934,9 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                         className="fixed pointer-events-none"
                         initial={{
                             x: drawAnimation.startPos.x - 32,
-                            y: drawAnimation.startPos.y - 48 + 4, // Start slightly below deck center (pulled from under)
+                            y: drawAnimation.startPos.y - 48 + 28, // Start at bottom of deck (pulled from under)
                             scale: 0.95,
-                            zIndex: 5, // Start below deck visually
+                            zIndex: 1, // Start below deck overlay
                         }}
                         animate={{
                             x: drawAnimation.endPos.x - 32,
@@ -806,7 +948,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                             type: 'spring',
                             stiffness: 180,
                             damping: 22,
-                            zIndex: { delay: 0.05 },
+                            zIndex: { delay: 0.1 },
                         }}
                         style={{
                             perspective: 1000,
@@ -986,9 +1128,9 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                     className="fixed pointer-events-none"
                                     initial={{
                                         x: layout.deckPos.x - 32,
-                                        y: layout.deckPos.y - 48 + 4,
+                                        y: layout.deckPos.y - 48 + 28, // Start at bottom of deck
                                         scale: 0.95,
-                                        zIndex: 150,
+                                        zIndex: 1,
                                     }}
                                     animate={{
                                         x: faceDownPlay.startPos.x - 32,
@@ -1000,6 +1142,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         type: 'spring',
                                         stiffness: 180,
                                         damping: 22,
+                                        zIndex: { delay: 0.1 },
                                     }}
                                 >
                                     <Card
@@ -1014,6 +1157,113 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 </motion.div>
                             )}
                     </>
+                )}
+            </AnimatePresence>
+
+            {/* Draw gamble animation */}
+            <AnimatePresence>
+                {drawGambleAnimation && (
+                    <motion.div
+                        key={drawGambleAnimation.id}
+                        className="fixed pointer-events-none"
+                        initial={{
+                            x: drawGambleAnimation.startPos.x - 32,
+                            y: drawGambleAnimation.startPos.y - 48 + 28, // Start from bottom of deck
+                            zIndex: 200,
+                            scale: 0.95,
+                        }}
+                        animate={{
+                            x:
+                                drawGambleAnimation.phase === 'retreating' ||
+                                drawGambleAnimation.phase === 'done'
+                                    ? drawGambleAnimation.handPos.x - 32
+                                    : drawGambleAnimation.pilePos.x - 32,
+                            y:
+                                drawGambleAnimation.phase === 'retreating' ||
+                                drawGambleAnimation.phase === 'done'
+                                    ? drawGambleAnimation.handPos.y - 48
+                                    : drawGambleAnimation.pilePos.y -
+                                      48 +
+                                      (drawGambleAnimation.phase === 'revealed' &&
+                                      !drawGambleAnimation.isSuccess
+                                          ? -10
+                                          : 0),
+                            zIndex: 200,
+                            scale: 1,
+                        }}
+                        exit={{ opacity: 0 }}
+                        transition={{
+                            type: 'spring',
+                            stiffness: 200,
+                            damping: 25,
+                        }}
+                        style={{ perspective: 1000 }}
+                    >
+                        {/* Double-sided flipping card */}
+                        <motion.div
+                            className="relative w-16 h-24"
+                            initial={{ rotateY: 0 }}
+                            animate={{ rotateY: 180 }}
+                            transition={{
+                                type: 'spring',
+                                stiffness: 100,
+                                damping: 15,
+                            }}
+                            style={{ transformStyle: 'preserve-3d' }}
+                        >
+                            {/* Back face - deck color */}
+                            <div
+                                className="absolute inset-0"
+                                style={{ backfaceVisibility: 'hidden' }}
+                            >
+                                <Card
+                                    card={null}
+                                    faceUp={false}
+                                    backColor={myTheme.neutral}
+                                />
+                            </div>
+                            {/* Front face */}
+                            <div
+                                className="absolute inset-0"
+                                style={{
+                                    backfaceVisibility: 'hidden',
+                                    transform: 'rotateY(180deg)',
+                                }}
+                            >
+                                <Card
+                                    card={drawGambleAnimation.card}
+                                    faceUp={true}
+                                    suitColors={suitColors}
+                                    jokerColor={myTheme.neutral}
+                                    darkFace={myTheme.darkCardFace}
+                                />
+                            </div>
+                        </motion.div>
+
+                        {/* Success/Fail indicator */}
+                        <AnimatePresence>
+                            {drawGambleAnimation.phase === 'revealed' && (
+                                <motion.div
+                                    className="absolute inset-0 flex items-center justify-center"
+                                    initial={{ opacity: 0, scale: 0.5 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.5 }}
+                                    transition={{ duration: 0.2 }}
+                                >
+                                    <div
+                                        className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl font-bold ${
+                                            drawGambleAnimation.isSuccess
+                                                ? 'bg-emerald-500/90 text-white'
+                                                : 'bg-red-500/90 text-white'
+                                        }`}
+                                        style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}
+                                    >
+                                        {drawGambleAnimation.isSuccess ? '✓' : '✗'}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </motion.div>
                 )}
             </AnimatePresence>
 
@@ -1090,6 +1340,26 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Debug overlay (localhost only) */}
+            {isLocalhost && showDebug && (
+                <div className="fixed inset-0 pointer-events-none z-[9999]">
+                    {/* Vertical center line */}
+                    <div
+                        className="absolute top-0 bottom-0 w-px bg-red-500/50"
+                        style={{ left: '50%' }}
+                    />
+                    {/* Horizontal center line */}
+                    <div
+                        className="absolute left-0 right-0 h-px bg-red-500/50"
+                        style={{ top: '50%' }}
+                    />
+                    {/* Debug label */}
+                    <div className="absolute top-2 left-2 text-xs text-red-500/70 font-mono">
+                        DEBUG (press D to toggle)
+                    </div>
+                </div>
+            )}
 
             {/* Win overlay */}
             <WinOverlay winner={state.winner} onPlayAgain={handlePlayAgain} onExit={onExit} />

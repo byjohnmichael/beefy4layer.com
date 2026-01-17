@@ -175,7 +175,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                     const newFaceDown = [...player.faceDown];
 
                     // Draw replacement card
-                    let { card: replacementCard, remaining: newDeck } = drawOne(state.deck);
+                    const { card: replacementCard, remaining: newDeck } = drawOne(state.deck);
                     let newCenterPiles = state.centerPiles;
 
                     // Check if deck is now empty - trigger refresh
@@ -231,6 +231,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 selectedCard: null,
                 revealedCard: null,
                 pendingPileIndex: null,
+                pendingDrawGamble: null,
             };
 
         case 'DRAW_FROM_DECK': {
@@ -280,6 +281,118 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             newState = addLog(newState, `${newState.currentPlayer}'s turn`);
 
             return newState;
+        }
+
+        case 'START_DRAW_GAMBLE': {
+            if (state.winner) return state;
+            if (state.deck.length === 0) return state;
+
+            // Peek at the top card of the deck (don't remove it yet)
+            const cardToGamble = state.deck[state.deck.length - 1];
+
+            return {
+                ...state,
+                pendingDrawGamble: cardToGamble,
+                selectedCard: null, // Clear any hand/face-down selection
+            };
+        }
+
+        case 'CANCEL_DRAW_GAMBLE': {
+            return {
+                ...state,
+                pendingDrawGamble: null,
+            };
+        }
+
+        case 'PLAY_DRAW_GAMBLE': {
+            if (state.winner) return state;
+            if (!state.pendingDrawGamble) return state;
+
+            const card = state.pendingDrawGamble;
+            const player = state.players[state.currentPlayer];
+            const pile = state.centerPiles[action.pileIndex];
+            const pileTop = pile[pile.length - 1];
+
+            // Remove the card from deck
+            const newDeck = state.deck.slice(0, -1);
+
+            // Check if play is successful
+            const isSuccess = canPlay(card, pileTop);
+
+            if (isSuccess) {
+                // Success! Place card on pile
+                const newCenterPiles = [...state.centerPiles];
+                newCenterPiles[action.pileIndex] = [...pile, card];
+
+                let newState: GameState = {
+                    ...state,
+                    deck: newDeck,
+                    centerPiles: newCenterPiles,
+                    pendingDrawGamble: null,
+                    revealedCard: card,
+                    pendingPileIndex: action.pileIndex,
+                };
+
+                newState = addLog(
+                    newState,
+                    `${state.currentPlayer} drew and played ${getRankDisplay(card.rank)} on pile ${getPileTopRank([pileTop])} (success)`,
+                );
+
+                // Check for win (unlikely from draw but possible)
+                const winner = checkWinner(newState);
+                if (winner) {
+                    newState = addLog(newState, `${winner} wins!`);
+                    return { ...newState, winner };
+                }
+
+                // Extra turn - stay on same player
+                return newState;
+            } else {
+                // Failure! Card goes to hand
+                const newHand = [...player.hand, card];
+
+                // Check if deck is now empty - trigger refresh
+                let finalDeck = newDeck;
+                let newCenterPiles = state.centerPiles;
+                let refreshLog: string | null = null;
+
+                if (finalDeck.length === 0) {
+                    const refreshed = refreshCenterPiles(state.centerPiles);
+                    finalDeck = refreshed.newDeck;
+                    newCenterPiles = refreshed.newCenterPiles;
+                    refreshLog = 'Deck refreshed (center piles reshuffled)';
+                }
+
+                let newState: GameState = {
+                    ...state,
+                    deck: finalDeck,
+                    centerPiles: newCenterPiles,
+                    players: {
+                        ...state.players,
+                        [state.currentPlayer]: {
+                            ...player,
+                            hand: newHand,
+                        },
+                    },
+                    currentPlayer: getOpponent(state.currentPlayer),
+                    pendingDrawGamble: null,
+                    revealedCard: card,
+                    pendingPileIndex: action.pileIndex,
+                };
+
+                newState = addLog(
+                    newState,
+                    `${state.currentPlayer} drew and played ${getRankDisplay(card.rank)} on pile ${getPileTopRank([pileTop])} (fail), moved to hand`,
+                );
+
+                if (refreshLog) {
+                    newState = addLog(newState, refreshLog);
+                }
+
+                newState = addLog(newState, `${newState.currentPlayer}'s turn`);
+
+                return newState;
+            }
         }
 
         case 'SET_FIRST_PLAYER': {

@@ -44,6 +44,8 @@ interface CardLayerProps {
     isDealing?: boolean;
     // Perspective: which player ID is "me" (renders at bottom)
     myPlayerId?: PlayerId;
+    // Draw gamble mode - when player is gambling a drawn card
+    pendingDrawGamble?: CardType | null;
 }
 
 export function CardLayer({
@@ -60,6 +62,7 @@ export function CardLayer({
     dealtCards,
     isDealing = false,
     myPlayerId = 'P1',
+    pendingDrawGamble,
 }: CardLayerProps) {
     const cardPositions: CardPosition[] = [];
     let zCounter = 0;
@@ -84,20 +87,20 @@ export function CardLayer({
     const opponentHandCenter = layout.p2HandCenter;
     const opponentFaceDownCenter = layout.p2FaceDownCenter;
 
-    // Calculate positions for OPPONENT hand - partially hidden at top
+    // Calculate positions for OPPONENT hand - linear layout, face-up, visible to both players
     const opponentHand = opponentPlayer.hand;
     const opponentHandCount = opponentHand.length;
     opponentHand.forEach((card, index) => {
-        const spacing = 50;
-        const totalWidth = (opponentHandCount - 1) * spacing;
+        const overlapSpacing = 35; // Partial overlap
+        const totalWidth = (opponentHandCount - 1) * overlapSpacing;
         const startX = opponentHandCenter.x - totalWidth / 2;
 
         cardPositions.push({
             card,
-            x: startX + index * spacing,
+            x: startX + index * overlapSpacing,
             y: opponentHandCenter.y,
             rotation: 0,
-            faceUp: false,
+            faceUp: true, // Face-up so both players can see
             zIndex: zCounter++,
             location: 'p2Hand',
             locationIndex: index,
@@ -109,15 +112,13 @@ export function CardLayer({
         });
     });
 
-    // Calculate positions for MY hand (bottom, face up, selectable)
+    // Calculate positions for MY hand - linear layout, face-up, selectable
     const myHand = myPlayer.hand;
     const myHandCount = myHand.length;
     myHand.forEach((card, index) => {
-        const maxRotation = Math.min(myHandCount * 3, 25);
-        const normalizedPos = myHandCount === 1 ? 0 : (index / (myHandCount - 1)) * 2 - 1;
-        const rotation = normalizedPos * maxRotation;
-        const horizontalSpread = normalizedPos * Math.min(myHandCount * 25, 150);
-        const lift = -Math.abs(normalizedPos) * 15 + 15;
+        const overlapSpacing = 35; // Partial overlap (same as opponent)
+        const totalWidth = (myHandCount - 1) * overlapSpacing;
+        const startX = myHandCenter.x - totalWidth / 2;
 
         const hasLegalPlay = getLegalPiles(card, state.centerPiles).length > 0;
         const isSelected =
@@ -125,9 +126,9 @@ export function CardLayer({
 
         cardPositions.push({
             card,
-            x: myHandCenter.x + horizontalSpread,
-            y: myHandCenter.y - lift + (isSelected ? -20 : 0),
-            rotation,
+            x: startX + index * overlapSpacing,
+            y: myHandCenter.y + (isSelected ? -20 : 0),
+            rotation: 0, // No rotation for linear layout
             faceUp: true,
             zIndex: zCounter++,
             location: 'p1Hand',
@@ -147,7 +148,7 @@ export function CardLayer({
     myPlayer.faceDown.forEach((card, originalIndex) => {
         if (card === null) return;
 
-        const spacing = 76;
+        const spacing = 80; // Match pile spacing (64px card + 16px gap)
         const totalWidth = (myFDCount - 1) * spacing;
         const startX = myFaceDownCenter.x - totalWidth / 2;
 
@@ -183,7 +184,7 @@ export function CardLayer({
     opponentPlayer.faceDown.forEach((card, originalIndex) => {
         if (card === null) return;
 
-        const spacing = 76;
+        const spacing = 80; // Match pile spacing (64px card + 16px gap)
         const totalWidth = (opponentFDCount - 1) * spacing;
         const startX = opponentFaceDownCenter.x - totalWidth / 2;
 
@@ -215,7 +216,9 @@ export function CardLayer({
 
         // Use MY hand for legal pile checking (since I'm the one making moves)
         let isLegal = false;
-        if (selectedCard) {
+        if (pendingDrawGamble) {
+            isLegal = true; // Draw gamble can play on any pile
+        } else if (selectedCard) {
             if (selectedCard.source === 'faceDown') {
                 isLegal = true; // Face-down can play on any pile
             } else if (selectedCard.source === 'hand') {
@@ -227,7 +230,7 @@ export function CardLayer({
                 }
             }
         }
-        const hasSelection = selectedCard !== null && isPlayerTurn;
+        const hasSelection = (selectedCard !== null || pendingDrawGamble !== null) && isPlayerTurn;
 
         cardPositions.push({
             card: topCard,
@@ -274,7 +277,7 @@ export function CardLayer({
                 const hasBeenDealt = !dealtCards || dealtCards.has(pos.card.id);
                 const showAtDeck = isDealing && !hasBeenDealt;
 
-                // Cards not yet dealt start at deck position
+                // Cards not yet dealt stay at deck center (part of deck stack)
                 const targetX = showAtDeck ? layout.deckPos.x - 32 : pos.x - 32;
                 const targetY = showAtDeck ? layout.deckPos.y - 48 : pos.y - 48;
                 const targetRotation = showAtDeck ? 0 : pos.rotation;
@@ -289,10 +292,10 @@ export function CardLayer({
                             isDealing
                                 ? {
                                       x: layout.deckPos.x - 32,
-                                      y: layout.deckPos.y - 48,
+                                      y: layout.deckPos.y - 48 + 28, // Start from bottom of deck
                                       rotate: 0,
                                       rotateY: 180,
-                                      scale: 1,
+                                      scale: 0.95,
                                   }
                                 : false
                         }

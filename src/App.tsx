@@ -1,5 +1,5 @@
 import type { Room } from './lib/multiplayer';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { TitleScreen } from './screens/TitleScreen';
 import { Game, type GameMode } from './screens/Game';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -12,6 +12,9 @@ function getSavedTheme(): CardTheme {
     const savedThemeId = localStorage.getItem('beeft_theme') || 'taco-bell';
     return getThemeById(savedThemeId);
 }
+
+// Background music volume (0.0 to 1.0)
+const MUSIC_VOLUME = 0.05;
 
 type Screen = 'title' | 'game';
 
@@ -32,6 +35,45 @@ function App() {
     // Rejoin popup state
     const [pendingRejoinRoom, setPendingRejoinRoom] = useState<Room | null>(null);
     const [isCheckingRejoin, setIsCheckingRejoin] = useState(true);
+
+    // Background music ref
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Initialize background music
+    useEffect(() => {
+        const audio = new Audio('/audio/background-music.mp3');
+        audio.loop = true;
+        audio.volume = MUSIC_VOLUME;
+        audioRef.current = audio;
+
+        // Try to play immediately (may be blocked by browser)
+        audio.play().catch(() => {
+            // Autoplay blocked - will start on first user interaction
+        });
+
+        // Start music on first user interaction if autoplay was blocked
+        const startMusic = () => {
+            if (audioRef.current && audioRef.current.paused) {
+                audioRef.current.play().catch(() => {});
+            }
+            // Remove listeners after first interaction
+            document.removeEventListener('click', startMusic);
+            document.removeEventListener('keydown', startMusic);
+            document.removeEventListener('touchstart', startMusic);
+        };
+
+        document.addEventListener('click', startMusic);
+        document.addEventListener('keydown', startMusic);
+        document.addEventListener('touchstart', startMusic);
+
+        return () => {
+            audio.pause();
+            audio.src = '';
+            document.removeEventListener('click', startMusic);
+            document.removeEventListener('keydown', startMusic);
+            document.removeEventListener('touchstart', startMusic);
+        };
+    }, []);
 
     // Check for active game on mount
     useEffect(() => {
