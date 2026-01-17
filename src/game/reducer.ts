@@ -175,7 +175,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                     const newFaceDown = [...player.faceDown];
 
                     // Draw replacement card
-                    const { card: replacementCard, remaining: newDeck } = drawOne(state.deck);
+                    let { card: replacementCard, remaining: newDeck } = drawOne(state.deck);
                     let newCenterPiles = state.centerPiles;
 
                     // Check if deck is now empty - trigger refresh
