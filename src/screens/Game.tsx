@@ -8,10 +8,11 @@ import { CardLayer } from '../components/CardLayer';
 import { Card } from '../components/Card';
 import { TurnIndicator } from '../components/TurnIndicator';
 import { WinOverlay } from '../components/WinOverlay';
-import type { Card as CardType, PlayerId } from '../game/types';
+import type { Card as CardType, PlayerId, GameAction } from '../game/types';
 import type { CardTheme } from '../themes/themes';
 import type { Room } from '../lib/multiplayer';
 import { subscribeToRoom, updateGameState, endGame, endGameByInactivity } from '../lib/multiplayer';
+import { MultiplayerSync, createMultiplayerSync } from '../lib/multiplayerSync';
 
 export type GameMode = 'singleplayer' | 'multiplayer';
 
@@ -73,6 +74,13 @@ type GamePhase = 'dealing' | 'coinFlip' | 'playing';
 const isLocalhost = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
+// Sound effect for card dealing/placing
+const playDealSound = () => {
+    const audio = new Audio('/audio/sfx/Deal.wav');
+    audio.volume = 0.5;
+    audio.play().catch(() => {}); // Ignore autoplay errors
+};
+
 export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) {
     // For multiplayer, use the room's game state if available
     const initialState =
@@ -97,9 +105,18 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         heartsDiamonds: myTheme.secondary.solid,
     };
 
-    // Track if we need to sync state to server
-    const lastSyncedStateRef = useRef<string>('');
-    const isProcessingRemoteUpdate = useRef(false);
+    // Multiplayer sync instance (broadcast-based real-time sync)
+    const syncRef = useRef<MultiplayerSync | null>(null);
+    const isProcessingRemoteAction = useRef(false);
+    const stateRef = useRef(state); // Keep a ref to current state for callbacks
+
+    // Update state ref whenever state changes
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
+
+    // Track last synced state for database checkpoints (not real-time sync)
+    const lastCheckpointRef = useRef<string>('');
     const [layout, setLayout] = useState<LayoutPositions | null>(null);
     const [drawAnimation, setDrawAnimation] = useState<DrawAnimation | null>(null);
     const [pendingDraw, setPendingDraw] = useState<{ target: 'p1' | 'p2' } | null>(null);
@@ -123,6 +140,9 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const [lastMoveAt, setLastMoveAt] = useState<string | null>(room?.last_move_at || null);
     const [secondsRemaining, setSecondsRemaining] = useState(60);
     const [gameEndedByInactivity, setGameEndedByInactivity] = useState(false);
+
+    // Sync connection status (multiplayer only)
+    const [syncStatus, setSyncStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
     // Refs for measuring positions
     const deckRef = useRef<HTMLDivElement>(null);
@@ -220,71 +240,113 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    // === MULTIPLAYER SYNC ===
-    // Subscribe to room updates in multiplayer
+    // === MULTIPLAYER SYNC (Broadcast-based real-time) ===
+
+    // Dispatch with broadcast - dispatches locally and broadcasts to opponent
+    const dispatchWithSync = useCallback((action: GameAction) => {
+        // Dispatch locally first
+        dispatch(action);
+
+        // Broadcast to opponent in multiplayer mode
+        if (mode === 'multiplayer' && syncRef.current && !isProcessingRemoteAction.current) {
+            syncRef.current.broadcast(action);
+        }
+    }, [mode]);
+
+    // Set up broadcast channel for multiplayer
+    useEffect(() => {
+        if (mode !== 'multiplayer' || !room) return;
+
+        // Create sync instance
+        const sync = createMultiplayerSync(room.id, isHost);
+        syncRef.current = sync;
+
+        // Subscribe to receive opponent's actions
+        sync.subscribe({
+            onAction: (action, fromPlayer) => {
+                // Validate the action using ref to get current state
+                if (!MultiplayerSync.validateAction(action, fromPlayer, stateRef.current)) {
+                    console.warn('[Game] Rejected invalid action from', fromPlayer);
+                    return;
+                }
+
+                // Mark that we're processing a remote action
+                isProcessingRemoteAction.current = true;
+
+                // Dispatch the action locally
+                dispatch(action);
+
+                // Reset flag after a short delay
+                setTimeout(() => {
+                    isProcessingRemoteAction.current = false;
+                }, 50);
+
+                // Reset move timer when opponent acts
+                setLastMoveAt(new Date().toISOString());
+            },
+            onConnectionChange: (status) => {
+                console.log('[Game] Sync connection:', status);
+                if (status === 'connected') {
+                    setSyncStatus('connected');
+                } else if (status === 'disconnected' || status === 'error') {
+                    setSyncStatus('disconnected');
+                }
+            },
+        });
+
+        // Cleanup on unmount
+        return () => {
+            sync.unsubscribe();
+            syncRef.current = null;
+        };
+    }, [mode, room?.id, isHost]);
+
+    // Also subscribe to room updates for game-end detection and timer
     useEffect(() => {
         if (mode !== 'multiplayer' || !room) return;
 
         const unsubscribe = subscribeToRoom(room.id, (updatedRoom) => {
-            // Check if game ended by inactivity (status changed to finished but no winner)
+            // Check if game ended by inactivity
             if (updatedRoom.status === 'finished' && updatedRoom.game_state && !updatedRoom.game_state.winner) {
                 setGameEndedByInactivity(true);
                 return;
             }
 
-            // Update last move timestamp for timer
+            // Update last move timestamp for timer (from database as backup)
             if (updatedRoom.last_move_at) {
                 setLastMoveAt(updatedRoom.last_move_at);
-            }
-
-            if (updatedRoom.game_state && !isProcessingRemoteUpdate.current) {
-                const remoteStateStr = JSON.stringify(updatedRoom.game_state);
-
-                // Only update if state is different and we didn't just send this update
-                if (remoteStateStr !== lastSyncedStateRef.current) {
-                    isProcessingRemoteUpdate.current = true;
-
-                    // Apply the remote state by resetting and replaying
-                    // For simplicity, we dispatch a special action to replace state
-                    dispatch({ type: 'SYNC_STATE', state: updatedRoom.game_state } as any);
-
-                    lastSyncedStateRef.current = remoteStateStr;
-
-                    setTimeout(() => {
-                        isProcessingRemoteUpdate.current = false;
-                    }, 100);
-                }
             }
         });
 
         return unsubscribe;
     }, [mode, room?.id]);
 
-    // Sync local state changes to server in multiplayer
+    // Database checkpoint - save state on turn changes for reconnection recovery
     useEffect(() => {
-        if (mode !== 'multiplayer' || !room || isProcessingRemoteUpdate.current) return;
+        if (mode !== 'multiplayer' || !room || gamePhase !== 'playing') return;
 
         const stateStr = JSON.stringify(state);
 
-        // Don't sync if this is the same state we just received
-        if (stateStr === lastSyncedStateRef.current) return;
+        // Don't checkpoint if this is the same state
+        if (stateStr === lastCheckpointRef.current) return;
 
-        // Only sync if it's our turn changing to opponent's turn (we made a move)
-        // or if game just ended
-        const shouldSync = !isMyTurn || state.winner !== null;
+        // Checkpoint when turn changes or game ends
+        const turnChanged = state.currentPlayer !== (isHost ? 'P1' : 'P2');
+        const shouldCheckpoint = turnChanged || state.winner !== null;
 
-        if (shouldSync && gamePhase === 'playing') {
-            lastSyncedStateRef.current = stateStr;
+        if (shouldCheckpoint) {
+            lastCheckpointRef.current = stateStr;
 
             const nextPlayer = state.currentPlayer === 'P1' ? 'host' : 'guest';
 
             if (state.winner) {
                 endGame(room.id, state);
             } else {
+                // Background checkpoint - don't block on this
                 updateGameState(room.id, state, nextPlayer as 'host' | 'guest');
             }
         }
-    }, [mode, room?.id, state, isMyTurn, gamePhase]);
+    }, [mode, room?.id, state, isHost, gamePhase]);
 
     // === MOVE TIMER (Multiplayer only) ===
     // Countdown timer based on lastMoveAt
@@ -359,6 +421,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         // Schedule each card to be dealt
         dealSequence.forEach(({ id, delay: cardDelay }) => {
             setTimeout(() => {
+                playDealSound();
                 setDealtCards((prev) => new Set([...prev, id]));
             }, cardDelay);
         });
@@ -545,12 +608,12 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     const handleSelectHandCard = (index: number) => {
         if (gamePhase !== 'playing' || !isMyTurn) return;
-        dispatch({ type: 'SELECT_HAND_CARD', index });
+        dispatchWithSync({ type: 'SELECT_HAND_CARD', index });
     };
 
     const handleSelectFaceDownCard = (index: number) => {
         if (gamePhase !== 'playing' || !isMyTurn) return;
-        dispatch({ type: 'SELECT_FACEDOWN_CARD', index });
+        dispatchWithSync({ type: 'SELECT_FACEDOWN_CARD', index });
     };
 
     const handleSelectPile = (pileIndex: number) => {
@@ -566,28 +629,24 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         if (state.selectedCard?.source === 'faceDown' && layout && !faceDownPlay) {
             // Always use 'P1' for animation since my cards are at bottom (P1 position) in perspective mode
             triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, 'P1');
-            dispatch({ type: 'CLEAR_SELECTIONS' });
+            dispatchWithSync({ type: 'CLEAR_SELECTIONS' });
             return;
         }
 
         // Regular hand card play
-        dispatch({ type: 'SELECT_PILE', pileIndex });
+        playDealSound();
+        dispatchWithSync({ type: 'SELECT_PILE', pileIndex });
     };
 
     const handlePlayAgain = () => {
         dispatch({ type: 'RESET_GAME' });
     };
 
-    // Handle draw animation completion
-    useEffect(() => {
-        if (!drawAnimation || drawAnimation.progress !== 'animating') return;
-
-        const timer = setTimeout(() => {
-            setDrawAnimation((prev) => (prev ? { ...prev, progress: 'done' } : null));
-        }, 500);
-
-        return () => clearTimeout(timer);
-    }, [drawAnimation]);
+    // Handle draw animation completion - triggered by onAnimationComplete callback
+    const handleDrawAnimationComplete = useCallback(() => {
+        playDealSound();
+        setDrawAnimation((prev) => (prev ? { ...prev, progress: 'done' } : null));
+    }, []);
 
     useEffect(() => {
         if (drawAnimation?.progress === 'done' && pendingDraw) {
@@ -600,118 +659,96 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         }
     }, [drawAnimation, pendingDraw]);
 
-    // Handle face-down play animation phases
+    // Handle face-down play animation - movement phases triggered by onAnimationComplete
+    const handleFaceDownMoveComplete = useCallback(() => {
+        playDealSound();
+        setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
+    }, []);
+
+    const handleFaceDownRetreatComplete = useCallback(() => {
+        setFaceDownPlay((prev) => {
+            if (!prev) return null;
+            if (prev.replacementCard) {
+                return { ...prev, phase: 'replacing' };
+            } else {
+                return { ...prev, phase: 'done' };
+            }
+        });
+    }, []);
+
+    const handleFaceDownReplaceComplete = useCallback(() => {
+        playDealSound();
+        setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'done' } : null));
+    }, []);
+
+    // Handle face-down play phases that need deliberate delays (revealed indicator)
     useEffect(() => {
         if (!faceDownPlay) return;
 
-        const timings = {
-            moving: 500, // Time to move to pile and flip
-            revealed: 800, // Time to show success/fail indicator
-            retreating: 400, // Time to move to hand (fail only)
-            replacing: 500, // Time for replacement card to appear (fail only)
-        };
-
-        if (faceDownPlay.phase === 'moving') {
-            const timer = setTimeout(() => {
-                setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
-            }, timings.moving);
-            return () => clearTimeout(timer);
-        }
-
+        // 'revealed' phase - deliberate delay to show success/fail indicator
         if (faceDownPlay.phase === 'revealed') {
             const timer = setTimeout(() => {
                 if (faceDownPlay.isSuccess) {
-                    // Success - dispatch and finish
                     setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'done' } : null));
                 } else {
-                    // Fail - start retreating to hand
                     setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'retreating' } : null));
                 }
-            }, timings.revealed);
+            }, 800);
             return () => clearTimeout(timer);
         }
 
-        if (faceDownPlay.phase === 'retreating') {
-            const timer = setTimeout(() => {
-                if (faceDownPlay.replacementCard) {
-                    setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'replacing' } : null));
-                } else {
-                    setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'done' } : null));
-                }
-            }, timings.retreating);
-            return () => clearTimeout(timer);
-        }
-
-        if (faceDownPlay.phase === 'replacing') {
-            const timer = setTimeout(() => {
-                setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'done' } : null));
-            }, timings.replacing);
-            return () => clearTimeout(timer);
-        }
-
+        // 'done' phase - dispatch state changes
         if (faceDownPlay.phase === 'done') {
-            // Dispatch the actual state change
-            dispatch({ type: 'SELECT_FACEDOWN_CARD', index: faceDownPlay.slotIndex });
-            dispatch({ type: 'SELECT_PILE', pileIndex: faceDownPlay.pileIndex });
+            dispatchWithSync({ type: 'SELECT_FACEDOWN_CARD', index: faceDownPlay.slotIndex });
+            dispatchWithSync({ type: 'SELECT_PILE', pileIndex: faceDownPlay.pileIndex });
 
             setTimeout(() => {
                 setFaceDownPlay(null);
             }, 50);
         }
-    }, [faceDownPlay]);
+    }, [faceDownPlay, dispatchWithSync]);
 
-    // Handle draw gamble animation phases
+    // Handle draw gamble animation - movement phases triggered by onAnimationComplete
+    const handleDrawGambleMoveComplete = useCallback(() => {
+        playDealSound();
+        setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
+    }, []);
+
+    const handleDrawGambleRetreatComplete = useCallback(() => {
+        setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'done' } : null));
+    }, []);
+
+    // Handle draw gamble phases that need deliberate delays (revealed indicator)
     useEffect(() => {
         if (!drawGambleAnimation) return;
 
-        const timings = {
-            moving: 500, // Time to move to pile and flip
-            revealed: 800, // Time to show success/fail indicator
-            retreating: 400, // Time to move to hand (fail only)
-        };
-
-        if (drawGambleAnimation.phase === 'moving') {
-            const timer = setTimeout(() => {
-                setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
-            }, timings.moving);
-            return () => clearTimeout(timer);
-        }
-
+        // 'revealed' phase - deliberate delay to show success/fail indicator
         if (drawGambleAnimation.phase === 'revealed') {
             const timer = setTimeout(() => {
                 if (drawGambleAnimation.isSuccess) {
-                    // Success - dispatch and finish
                     setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'done' } : null));
                 } else {
-                    // Fail - start retreating to hand
                     setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'retreating' } : null));
                 }
-            }, timings.revealed);
+            }, 800);
             return () => clearTimeout(timer);
         }
 
-        if (drawGambleAnimation.phase === 'retreating') {
-            const timer = setTimeout(() => {
-                setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'done' } : null));
-            }, timings.retreating);
-            return () => clearTimeout(timer);
-        }
-
+        // 'done' phase - dispatch state changes
         if (drawGambleAnimation.phase === 'done') {
-            // Dispatch the actual state change
-            dispatch({ type: 'PLAY_DRAW_GAMBLE', pileIndex: drawGambleAnimation.pileIndex });
+            dispatchWithSync({ type: 'PLAY_DRAW_GAMBLE', pileIndex: drawGambleAnimation.pileIndex });
 
             setTimeout(() => {
                 setDrawGambleAnimation(null);
             }, 50);
         }
-    }, [drawGambleAnimation]);
+    }, [drawGambleAnimation, dispatchWithSync]);
 
     const handleDrawFromDeck = () => {
         if (gamePhase !== 'playing' || !isMyTurn || drawGambleAnimation) return;
         if (state.deck.length === 0) return;
         // Enter draw gamble mode - highlights piles for player to choose
-        dispatch({ type: 'START_DRAW_GAMBLE' });
+        dispatchWithSync({ type: 'START_DRAW_GAMBLE' });
     };
 
     const isPlayerTurn = isMyTurn;
@@ -953,6 +990,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                             damping: 22,
                             zIndex: { delay: 0.1 },
                         }}
+                        onAnimationComplete={handleDrawAnimationComplete}
                         style={{
                             perspective: 1000,
                         }}
@@ -1049,6 +1087,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 type: 'spring',
                                 stiffness: 200,
                                 damping: 25,
+                            }}
+                            onAnimationComplete={() => {
+                                if (faceDownPlay.phase === 'moving') {
+                                    handleFaceDownMoveComplete();
+                                } else if (faceDownPlay.phase === 'retreating') {
+                                    handleFaceDownRetreatComplete();
+                                }
                             }}
                             style={{ perspective: 1000 }}
                         >
@@ -1149,6 +1194,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         damping: 22,
                                         zIndex: { delay: 0.1 },
                                     }}
+                                    onAnimationComplete={handleFaceDownReplaceComplete}
                                 >
                                     <Card
                                         card={null}
@@ -1201,6 +1247,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                             type: 'spring',
                             stiffness: 200,
                             damping: 25,
+                        }}
+                        onAnimationComplete={() => {
+                            if (drawGambleAnimation.phase === 'moving') {
+                                handleDrawGambleMoveComplete();
+                            } else if (drawGambleAnimation.phase === 'retreating') {
+                                handleDrawGambleRetreatComplete();
+                            }
                         }}
                         style={{ perspective: 1000 }}
                     >
@@ -1272,13 +1325,31 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 )}
             </AnimatePresence>
 
-            {/* Move Timer (multiplayer only) */}
+            {/* Move Timer and Sync Status (multiplayer only) */}
             {mode === 'multiplayer' && gamePhase === 'playing' && !state.winner && !gameEndedByInactivity && (
                 <motion.div
-                    className="fixed bottom-6 left-6 z-40"
+                    className="fixed bottom-6 left-6 z-40 flex items-center gap-3"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                 >
+                    {/* Sync status indicator */}
+                    <div
+                        className="w-3 h-3 rounded-full"
+                        style={{
+                            background: syncStatus === 'connected'
+                                ? '#22c55e'
+                                : syncStatus === 'connecting'
+                                ? '#eab308'
+                                : '#ef4444',
+                            boxShadow: syncStatus === 'connected'
+                                ? '0 0 8px rgba(34, 197, 94, 0.6)'
+                                : syncStatus === 'connecting'
+                                ? '0 0 8px rgba(234, 179, 8, 0.6)'
+                                : '0 0 8px rgba(239, 68, 68, 0.6)',
+                        }}
+                        title={`Sync: ${syncStatus}`}
+                    />
+                    {/* Timer */}
                     <div
                         className="px-4 py-3 rounded-xl backdrop-blur-sm"
                         style={{

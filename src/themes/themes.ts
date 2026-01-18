@@ -45,9 +45,9 @@ export const classicTheme: CardTheme = defineTheme({
 });
 
 // Taco theme - purple/gold
-export const tacoBellTheme: CardTheme = defineTheme({
-    id: 'taco-bell',
-    name: 'Taco',
+export const originalTheme: CardTheme = defineTheme({
+    id: 'original',
+    name: 'Original',
     primary: {
         gradient: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
         solid: '#7c3aed',
@@ -66,9 +66,9 @@ export const tacoBellTheme: CardTheme = defineTheme({
 });
 
 // Pink & Quartz theme - pink/gold
-export const pinkGoldTheme: CardTheme = defineTheme({
-    id: 'pink-gold',
-    name: 'Pink & Gold',
+export const roseGoldTheme: CardTheme = defineTheme({
+    id: 'rose-gold',
+    name: 'Rose Gold',
     primary: {
         gradient: 'linear-gradient(135deg, #fb5396 0%, #f37ab2 100%)',
         solid: '#fb5396',
@@ -108,9 +108,9 @@ export const beachTheme: CardTheme = defineTheme({
     darkCardFace: false,
 });
 
-export const forestSageTheme: CardTheme = defineTheme({
-    id: 'forest-sage',
-    name: 'Forest Sage',
+export const plantTheme: CardTheme = defineTheme({
+    id: 'plant',
+    name: 'Plant',
     primary: {
         gradient: 'linear-gradient(135deg, #2f6b4f 0%, #1f4d3a 100%)', // forest green
         solid: '#2f6b4f',
@@ -840,5 +840,5 @@ export const themes: CardTheme[] = themeRegistry;
 
 // Get theme by ID
 export function getThemeById(id: string): CardTheme {
-    return themes.find((t) => t.id === id) || classicTheme;
+    return themes.find((t) => t.id === id) || originalTheme;
 }

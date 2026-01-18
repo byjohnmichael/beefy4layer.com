@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { type CardTheme, tacoBellTheme } from './themes';
+import { type CardTheme, originalTheme } from './themes';
 
 interface ThemeContextValue {
     myTheme: CardTheme;
@@ -15,7 +15,7 @@ interface ThemeProviderProps {
     initialTheme?: CardTheme;
 }
 
-export function ThemeProvider({ children, initialTheme = tacoBellTheme }: ThemeProviderProps) {
+export function ThemeProvider({ children, initialTheme = originalTheme }: ThemeProviderProps) {
     const [myTheme, setMyTheme] = useState<CardTheme>(initialTheme);
     // In singleplayer, opponent uses same theme. In multiplayer, this would be set from network.
     const [opponentTheme, setOpponentTheme] = useState<CardTheme>(initialTheme);
