@@ -116,7 +116,7 @@ export class MultiplayerSync {
             return;
         }
 
-        console.log('[MultiplayerSync] Received action:', data.action.type, 'from', data.playerId);
+        console.log('[MultiplayerSync] Received action:', data.action.type, 'from', data.playerId, 'seq:', data.seq, 'payload:', data.action);
 
         // Dispatch to local reducer via callback
         this.callbacks?.onAction(data.action, data.playerId);

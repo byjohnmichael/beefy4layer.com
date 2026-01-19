@@ -74,13 +74,6 @@ type GamePhase = 'dealing' | 'coinFlip' | 'playing';
 const isLocalhost = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-// Sound effect for card dealing/placing
-const playDealSound = () => {
-    const audio = new Audio('/audio/sfx/Deal.wav');
-    audio.volume = 0.5;
-    audio.play().catch(() => {}); // Ignore autoplay errors
-};
-
 export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) {
     // For multiplayer, use the room's game state if available
     const initialState =
@@ -131,10 +124,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     const [dealtCards, setDealtCards] = useState<Set<string>>(new Set());
     const [coinFlipResult, setCoinFlipResult] = useState<'P1' | 'P2' | null>(null);
     const [coinFlipAnimating, setCoinFlipAnimating] = useState(false);
-
-    // 5-second lockout: pre-decide coin flip and track game start time
-    const [gameStartTime, setGameStartTime] = useState<number | null>(null);
-    const [preDecidedFirstPlayer, setPreDecidedFirstPlayer] = useState<'P1' | 'P2' | null>(null);
 
     // Move timer state (multiplayer only)
     const [lastMoveAt, setLastMoveAt] = useState<string | null>(room?.last_move_at || null);
@@ -244,6 +233,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     // Dispatch with broadcast - dispatches locally and broadcasts to opponent
     const dispatchWithSync = useCallback((action: GameAction) => {
+        // Debug: log what we're dispatching (use ref for current state)
+        const currentState = stateRef.current;
+        console.log('[Game] Dispatching action:', action.type, action, {
+            currentPlayer: currentState.currentPlayer,
+            deckLength: currentState.deck.length,
+        });
+
         // Dispatch locally first
         dispatch(action);
 
@@ -264,9 +260,20 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         // Subscribe to receive opponent's actions
         sync.subscribe({
             onAction: (action, fromPlayer) => {
+                const currentState = stateRef.current;
+
+                // Debug: log state before applying action
+                console.log('[Game] Before applying action:', action.type, {
+                    currentPlayer: currentState.currentPlayer,
+                    deckLength: currentState.deck.length,
+                    p1FaceDown: currentState.players.P1.faceDown.map(c => c?.id || 'null'),
+                    p2FaceDown: currentState.players.P2.faceDown.map(c => c?.id || 'null'),
+                    selectedCard: currentState.selectedCard,
+                });
+
                 // Validate the action using ref to get current state
-                if (!MultiplayerSync.validateAction(action, fromPlayer, stateRef.current)) {
-                    console.warn('[Game] Rejected invalid action from', fromPlayer);
+                if (!MultiplayerSync.validateAction(action, fromPlayer, currentState)) {
+                    console.warn('[Game] Rejected invalid action from', fromPlayer, 'currentPlayer:', currentState.currentPlayer);
                     return;
                 }
 
@@ -381,11 +388,8 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     useEffect(() => {
         if (gamePhase !== 'dealing' || !layout) return;
 
-        // PRE-DECIDE coin flip IMMEDIATELY (before any animation)
-        // This ensures the result is known even if animations break
+        // Pre-decide coin flip before animation
         const firstPlayer = Math.random() < 0.5 ? 'P1' : 'P2';
-        setPreDecidedFirstPlayer(firstPlayer);
-        setGameStartTime(Date.now());
 
         // Build the deal sequence:
         // 1. Deal 4 face-up cards to center piles
@@ -421,7 +425,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         // Schedule each card to be dealt
         dealSequence.forEach(({ id, delay: cardDelay }) => {
             setTimeout(() => {
-                playDealSound();
                 setDealtCards((prev) => new Set([...prev, id]));
             }, cardDelay);
         });
@@ -435,8 +438,14 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             setTimeout(() => {
                 setCoinFlipResult(firstPlayer);
                 setCoinFlipAnimating(false);
+
+                // Start playing phase after chip moves to position
+                // Small delay for chip position animation to begin
+                setTimeout(() => {
+                    setGamePhase('playing');
+                    dispatch({ type: 'SET_FIRST_PLAYER', player: firstPlayer });
+                }, 600);
             }, 1500); // Coin flip duration
-            // Note: Game start is handled by the 5-second lockout effect below
         }, delay + 500);
     }, [
         gamePhase,
@@ -446,23 +455,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
         state.players.P2.faceDown,
         state.currentPlayer,
     ]);
-
-    // === 5-SECOND LOCKOUT ===
-    // Players cannot act until 5 seconds after game start, regardless of animation state
-    // This ensures the game becomes playable even if animations break
-    useEffect(() => {
-        if (!gameStartTime || gamePhase === 'playing' || !preDecidedFirstPlayer) return;
-
-        const fiveSecondTimer = setTimeout(() => {
-            // Force game to start after 5 seconds
-            setCoinFlipAnimating(false);
-            setCoinFlipResult(preDecidedFirstPlayer);
-            setGamePhase('playing');
-            dispatch({ type: 'SET_FIRST_PLAYER', player: preDecidedFirstPlayer });
-        }, 5000);
-
-        return () => clearTimeout(fiveSecondTimer);
-    }, [gameStartTime, gamePhase, preDecidedFirstPlayer]);
 
     // Function to trigger face-down play animation
     const triggerFaceDownPlayAnimation = useCallback(
@@ -479,12 +471,13 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             const isSuccess = canPlay(card, pileTop);
 
             // Calculate the face-down slot position
+            // Visual position: MY cards are always at bottom (p1 position), opponent at top (p2 position)
             const faceDownCards = playerState.faceDown.filter((c) => c !== null);
             const fdCount = faceDownCards.length;
             const spacing = 76;
             const totalWidth = (fdCount - 1) * spacing;
-            const faceDownCenter =
-                player === 'P1' ? layout.p1FaceDownCenter : layout.p2FaceDownCenter;
+            const isMyCard = player === myPlayerId;
+            const faceDownCenter = isMyCard ? layout.p1FaceDownCenter : layout.p2FaceDownCenter;
 
             // Find this card's visual index among non-null cards
             let visualIndex = 0;
@@ -508,11 +501,11 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 phase: 'moving',
                 startPos: { x: startX, y: startY },
                 pilePos: layout.pilePositions[pileIndex],
-                handPos: player === 'P1' ? layout.p1HandCenter : layout.p2HandCenter,
+                handPos: isMyCard ? layout.p1HandCenter : layout.p2HandCenter,
                 replacementCard,
             });
         },
-        [layout, faceDownPlay, state],
+        [layout, faceDownPlay, state, myPlayerId],
     );
 
     // Function to trigger draw gamble play animation
@@ -527,6 +520,9 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             const pileTop = pile[pile.length - 1];
             const isSuccess = canPlay(card, pileTop);
 
+            // Visual position: MY cards at bottom (p1 position), opponent at top
+            const isMyCard = player === myPlayerId;
+
             setDrawGambleAnimation({
                 id: `dg-${Date.now()}`,
                 card,
@@ -535,10 +531,10 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 phase: 'moving',
                 startPos: layout.deckPos,
                 pilePos: layout.pilePositions[pileIndex],
-                handPos: player === 'P1' ? layout.p1HandCenter : layout.p2HandCenter,
+                handPos: isMyCard ? layout.p1HandCenter : layout.p2HandCenter,
             });
         },
-        [layout, drawGambleAnimation, state.pendingDrawGamble, state.centerPiles],
+        [layout, drawGambleAnimation, state.pendingDrawGamble, state.centerPiles, myPlayerId],
     );
 
     // Bot AI - acts instantly after initial delay
@@ -612,7 +608,21 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     };
 
     const handleSelectFaceDownCard = (index: number) => {
-        if (gamePhase !== 'playing' || !isMyTurn) return;
+        const currentState = stateRef.current;
+        const faceDownCards = currentState.players[myPlayerId].faceDown;
+        console.log('[Game] handleSelectFaceDownCard called:', {
+            index,
+            gamePhase,
+            isMyTurn,
+            myPlayerId,
+            currentPlayer: currentState.currentPlayer,
+            myFaceDown: faceDownCards.map(c => c?.id || 'null'),
+            cardAtIndex: faceDownCards[index]?.id || 'null',
+        });
+        if (gamePhase !== 'playing' || !isMyTurn) {
+            console.log('[Game] handleSelectFaceDownCard blocked:', { gamePhase, isMyTurn });
+            return;
+        }
         dispatchWithSync({ type: 'SELECT_FACEDOWN_CARD', index });
     };
 
@@ -621,20 +631,19 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
         // Check if this is a draw gamble play - intercept for animation
         if (state.pendingDrawGamble && layout && !drawGambleAnimation) {
-            triggerDrawGambleAnimation(pileIndex, 'P1');
+            triggerDrawGambleAnimation(pileIndex, myPlayerId);
             return;
         }
 
         // Check if this is a face-down card play - intercept for animation
         if (state.selectedCard?.source === 'faceDown' && layout && !faceDownPlay) {
-            // Always use 'P1' for animation since my cards are at bottom (P1 position) in perspective mode
-            triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, 'P1');
+            // Use myPlayerId to get the correct player's card for animation
+            triggerFaceDownPlayAnimation(state.selectedCard.index, pileIndex, myPlayerId);
             dispatchWithSync({ type: 'CLEAR_SELECTIONS' });
             return;
         }
 
         // Regular hand card play
-        playDealSound();
         dispatchWithSync({ type: 'SELECT_PILE', pileIndex });
     };
 
@@ -644,7 +653,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     // Handle draw animation completion - triggered by onAnimationComplete callback
     const handleDrawAnimationComplete = useCallback(() => {
-        playDealSound();
         setDrawAnimation((prev) => (prev ? { ...prev, progress: 'done' } : null));
     }, []);
 
@@ -661,7 +669,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     // Handle face-down play animation - movement phases triggered by onAnimationComplete
     const handleFaceDownMoveComplete = useCallback(() => {
-        playDealSound();
         setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
     }, []);
 
@@ -677,7 +684,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     }, []);
 
     const handleFaceDownReplaceComplete = useCallback(() => {
-        playDealSound();
         setFaceDownPlay((prev) => (prev ? { ...prev, phase: 'done' } : null));
     }, []);
 
@@ -710,7 +716,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     // Handle draw gamble animation - movement phases triggered by onAnimationComplete
     const handleDrawGambleMoveComplete = useCallback(() => {
-        playDealSound();
         setDrawGambleAnimation((prev) => (prev ? { ...prev, phase: 'revealed' } : null));
     }, []);
 
@@ -1111,7 +1116,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                 }}
                                 style={{ transformStyle: 'preserve-3d' }}
                             >
-                                {/* Back face - use player's card back color */}
+                                {/* Back face - use player's card back color (my cards = primary, opponent = secondary) */}
                                 <div
                                     className="absolute inset-0"
                                     style={{ backfaceVisibility: 'hidden' }}
@@ -1120,7 +1125,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         card={null}
                                         faceUp={false}
                                         backColor={
-                                            faceDownPlay.player === 'P1'
+                                            faceDownPlay.player === myPlayerId
                                                 ? myTheme.primary
                                                 : myTheme.secondary
                                         }
@@ -1200,7 +1205,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         card={null}
                                         faceUp={false}
                                         backColor={
-                                            faceDownPlay.player === 'P1'
+                                            faceDownPlay.player === myPlayerId
                                                 ? myTheme.primary
                                                 : myTheme.secondary
                                         }
@@ -1431,9 +1436,151 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                         style={{ top: '50%' }}
                     />
                     {/* Debug label */}
-                    <div className="absolute top-2 left-2 text-xs text-red-500/70 font-mono">
-                        DEBUG (press D to toggle)
+                    <div className="absolute top-2 left-2 text-xs text-red-500/70 font-mono bg-black/80 p-2 rounded">
+                        <div>DEBUG (press D to toggle)</div>
+                        <div className="text-yellow-400">isHost: {String(isHost)}</div>
+                        <div className="text-yellow-400">myPlayerId: {myPlayerId}</div>
+                        <div className="text-yellow-400">currentPlayer: {state.currentPlayer}</div>
+                        <div className="text-yellow-400">isMyTurn: {String(isMyTurn)}</div>
+                        <div className="text-cyan-400">room.host_id: {room?.host_id?.slice(0, 8) || 'N/A'}...</div>
+                        <div className="text-cyan-400">room.guest_id: {room?.guest_id?.slice(0, 8) || 'N/A'}...</div>
                     </div>
+
+                    {/* Next card from deck */}
+                    <div className="absolute top-2 right-2 bg-black/80 p-2 rounded text-xs font-mono text-white">
+                        <div className="text-yellow-400 mb-1">Next Deck Card:</div>
+                        {state.deck.length > 0 ? (
+                            <div className="text-green-400">
+                                {state.deck[state.deck.length - 1].rank}
+                                {state.deck[state.deck.length - 1].suit ? ` ${state.deck[state.deck.length - 1].suit}` : ''}
+                            </div>
+                        ) : (
+                            <div className="text-red-400">Empty</div>
+                        )}
+                        <div className="text-white/50 mt-1">Deck: {state.deck.length} cards</div>
+                    </div>
+
+                    {/* Face-down card values overlay - PERSPECTIVE AWARE */}
+                    {layout && (() => {
+                        // Use same perspective logic as CardLayer
+                        const myFaceDown = state.players[myPlayerId].faceDown;
+                        const opponentId = myPlayerId === 'P1' ? 'P2' : 'P1';
+                        const opponentFaceDown = state.players[opponentId].faceDown;
+
+                        return (
+                            <>
+                                {/* MY face-down cards (bottom) */}
+                                {myFaceDown.map((card, idx) => {
+                                    if (!card) return null;
+                                    const fdCount = myFaceDown.filter(c => c !== null).length;
+                                    const spacing = 76;
+                                    const totalWidth = (fdCount - 1) * spacing;
+                                    let visualIdx = 0;
+                                    for (let i = 0; i < idx; i++) {
+                                        if (myFaceDown[i] !== null) visualIdx++;
+                                    }
+                                    const x = layout.p1FaceDownCenter.x - totalWidth / 2 + visualIdx * spacing;
+                                    const y = layout.p1FaceDownCenter.y;
+                                    return (
+                                        <div
+                                            key={`myfd-${idx}`}
+                                            className="absolute bg-black/90 px-1 rounded text-xs font-mono font-bold"
+                                            style={{
+                                                left: x - 20,
+                                                top: y - 48,
+                                                color: card.suit === 'hearts' || card.suit === 'diamonds' ? '#f87171' : '#60a5fa',
+                                            }}
+                                        >
+                                            {card.rank}{card.suit ? card.suit[0].toUpperCase() : '★'}
+                                        </div>
+                                    );
+                                })}
+                                {/* OPPONENT face-down cards (top) */}
+                                {opponentFaceDown.map((card, idx) => {
+                                    if (!card) return null;
+                                    const fdCount = opponentFaceDown.filter(c => c !== null).length;
+                                    const spacing = 76;
+                                    const totalWidth = (fdCount - 1) * spacing;
+                                    let visualIdx = 0;
+                                    for (let i = 0; i < idx; i++) {
+                                        if (opponentFaceDown[i] !== null) visualIdx++;
+                                    }
+                                    const x = layout.p2FaceDownCenter.x - totalWidth / 2 + visualIdx * spacing;
+                                    const y = layout.p2FaceDownCenter.y;
+                                    return (
+                                        <div
+                                            key={`oppfd-${idx}`}
+                                            className="absolute bg-black/90 px-1 rounded text-xs font-mono font-bold"
+                                            style={{
+                                                left: x - 20,
+                                                top: y - 48,
+                                                color: card.suit === 'hearts' || card.suit === 'diamonds' ? '#f87171' : '#60a5fa',
+                                            }}
+                                        >
+                                            {card.rank}{card.suit ? card.suit[0].toUpperCase() : '★'}
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        );
+                    })()}
+
+                    {/* Card count table - cards NOT in deck */}
+                    {(() => {
+                        const ranks: (typeof state.deck[0]['rank'])[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+                        const suits: (typeof state.deck[0]['suit'])[] = ['spades', 'hearts', 'diamonds', 'clubs'];
+
+                        // Count cards NOT in deck (in play)
+                        const inPlay: Record<string, number> = {};
+                        const allCardsNotInDeck = [
+                            ...state.centerPiles.flat(),
+                            ...state.players.P1.hand,
+                            ...state.players.P1.faceDown.filter((c): c is CardType => c !== null),
+                            ...state.players.P2.hand,
+                            ...state.players.P2.faceDown.filter((c): c is CardType => c !== null),
+                        ];
+
+                        allCardsNotInDeck.forEach(card => {
+                            const key = `${card.rank}-${card.suit || 'joker'}`;
+                            inPlay[key] = (inPlay[key] || 0) + 1;
+                        });
+
+                        const jokerCount = allCardsNotInDeck.filter(c => c.rank === 'JOKER').length;
+
+                        return (
+                            <div className="absolute bottom-2 left-2 bg-black/90 p-2 rounded text-[10px] font-mono">
+                                <div className="text-yellow-400 mb-1">Cards in Play ({allCardsNotInDeck.length})</div>
+                                <table className="border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th className="px-1 text-white/50"></th>
+                                            {ranks.map(r => (
+                                                <th key={r} className="px-1 text-white/70">{r}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {suits.map(suit => (
+                                            <tr key={suit}>
+                                                <td className="px-1" style={{ color: suit === 'hearts' || suit === 'diamonds' ? '#f87171' : '#60a5fa' }}>
+                                                    {suit === 'spades' ? '♠' : suit === 'hearts' ? '♥' : suit === 'diamonds' ? '♦' : '♣'}
+                                                </td>
+                                                {ranks.map(rank => {
+                                                    const count = inPlay[`${rank}-${suit}`] || 0;
+                                                    return (
+                                                        <td key={rank} className={`px-1 text-center ${count > 0 ? 'text-green-400' : 'text-white/20'}`}>
+                                                            {count > 0 ? count : '·'}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                <div className="mt-1 text-purple-400">Jokers in play: {jokerCount}/2</div>
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 

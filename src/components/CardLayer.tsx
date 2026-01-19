@@ -79,6 +79,16 @@ export function CardLayer({
     const opponentPlayerId = myPlayerId === 'P1' ? 'P2' : 'P1';
     const opponentPlayer = state.players[opponentPlayerId];
 
+    // Debug: Log perspective info
+    console.log('[CardLayer] Perspective:', {
+        myPlayerId,
+        opponentPlayerId,
+        myPlayerHandCount: myPlayer.hand.length,
+        myPlayerFaceDownCount: myPlayer.faceDown.filter(c => c !== null).length,
+        opponentHandCount: opponentPlayer.hand.length,
+        opponentFaceDownCount: opponentPlayer.faceDown.filter(c => c !== null).length,
+    });
+
     // Layout positions from perspective
     // My cards use bottom positions (p1HandCenter, p1FaceDownCenter)
     // Opponent cards use top positions (p2HandCenter, p2FaceDownCenter)
