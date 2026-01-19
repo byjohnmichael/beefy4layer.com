@@ -133,6 +133,15 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
     // Sync connection status (multiplayer only)
     const [syncStatus, setSyncStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
+    // Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 640);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     // Refs for measuring positions
     const deckRef = useRef<HTMLDivElement>(null);
     const pilesRef = useRef<HTMLDivElement>(null);
@@ -800,10 +809,14 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 {/* MIDDLE: Deck and pile placeholders */}
                 <div className="w-full flex flex-col items-center gap-4">
                     <div className="relative flex items-center justify-center">
-                        {/* Deck placeholder - positioned to left of piles, vertically aligned */}
+                        {/* Deck placeholder - positioned to left of piles on desktop, bottom-left on mobile */}
                         <motion.div
                             ref={deckRef}
-                            className={`absolute right-full mr-6 top-0 w-16 h-24 rounded-lg ${canDraw ? 'cursor-pointer' : ''}`}
+                            className={`w-16 h-24 rounded-lg ${canDraw ? 'cursor-pointer' : ''} ${
+                                isMobile
+                                    ? 'fixed bottom-4 left-4 z-30'
+                                    : 'absolute right-full mr-6 top-0'
+                            }`}
                             whileHover={canDraw ? { scale: 1.05 } : {}}
                             whileTap={canDraw ? { scale: 0.95 } : {}}
                             onClick={canDraw ? handleDrawFromDeck : undefined}
@@ -878,16 +891,21 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                     />
                 </div>
 
-                {/* Turn indicator chip - positioned to right of piles, vertically aligned with face-down cards */}
+                {/* Turn indicator chip - positioned to right of piles on desktop, bottom-right on mobile */}
                 <motion.div
-                    className="fixed w-14 h-14 flex items-center justify-center"
-                    style={{
+                    className={`fixed w-14 h-14 flex items-center justify-center z-30 ${
+                        isMobile ? 'bottom-4 right-4' : ''
+                    }`}
+                    style={isMobile ? {} : {
                         // Piles are 304px wide (4×64 + 3×16), so right edge is 152px from center
                         // Deck gap is 24px (mr-6), so chip should be at same distance from right edge
                         left: 'calc(50% + 152px + 24px)', // 50% + piles half-width + gap
                     }}
-                    animate={{
-                        // Use measured layout positions so chip aligns with face-down cards
+                    animate={isMobile ? {
+                        // On mobile: stationary, only spin during coin flip
+                        rotate: coinFlipAnimating ? 360 : 0,
+                    } : {
+                        // On desktop: animate vertical position based on whose turn
                         // Subtract 28px (half of chip's 56px height) to center vertically
                         top: layout
                             ? gamePhase === 'playing'
