@@ -994,7 +994,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 {drawAnimation && (
                     <motion.div
                         key={drawAnimation.id}
-                        className="fixed pointer-events-none"
+                        className="fixed top-0 left-0 pointer-events-none"
                         initial={{
                             x: drawAnimation.startPos.x - 32,
                             y: drawAnimation.startPos.y - 48 + 28, // Start at bottom of deck (pulled from under)
@@ -1077,7 +1077,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                         {/* The card being played */}
                         <motion.div
                             key={faceDownPlay.id}
-                            className="fixed pointer-events-none"
+                            className="fixed top-0 left-0 pointer-events-none"
                             initial={{
                                 x: faceDownPlay.startPos.x - 32,
                                 y: faceDownPlay.startPos.y - 48,
@@ -1198,18 +1198,20 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                             layout && (
                                 <motion.div
                                     key={`${faceDownPlay.id}-replacement`}
-                                    className="fixed pointer-events-none"
+                                    className="fixed top-0 left-0 pointer-events-none"
                                     initial={{
                                         x: layout.deckPos.x - 32,
                                         y: layout.deckPos.y - 48 + 28, // Start at bottom of deck
                                         scale: 0.95,
                                         zIndex: 1,
+                                        rotateY: 180, // Match CardLayer's face-down card rotation
                                     }}
                                     animate={{
                                         x: faceDownPlay.startPos.x - 32,
                                         y: faceDownPlay.startPos.y - 48,
                                         scale: 1,
                                         zIndex: 150,
+                                        rotateY: 180, // Match CardLayer's face-down card rotation
                                     }}
                                     transition={{
                                         type: 'spring',
@@ -1218,6 +1220,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                                         zIndex: { delay: 0.1 },
                                     }}
                                     onAnimationComplete={handleFaceDownReplaceComplete}
+                                    style={{ perspective: 1000 }}
                                 >
                                     <Card
                                         card={null}
@@ -1239,7 +1242,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
                 {drawGambleAnimation && (
                     <motion.div
                         key={drawGambleAnimation.id}
-                        className="fixed pointer-events-none"
+                        className="fixed top-0 left-0 pointer-events-none"
                         initial={{
                             x: drawGambleAnimation.startPos.x - 32,
                             y: drawGambleAnimation.startPos.y - 48 + 28, // Start from bottom of deck
