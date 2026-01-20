@@ -127,11 +127,8 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
 
     // Move timer state (multiplayer only)
     const [lastMoveAt, setLastMoveAt] = useState<string | null>(room?.last_move_at || null);
-    const [secondsRemaining, setSecondsRemaining] = useState(60);
     const [gameEndedByInactivity, setGameEndedByInactivity] = useState(false);
 
-    // Sync connection status (multiplayer only)
-    const [syncStatus, setSyncStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
     // Mobile detection for responsive layout
     const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
@@ -302,11 +299,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             },
             onConnectionChange: (status) => {
                 console.log('[Game] Sync connection:', status);
-                if (status === 'connected') {
-                    setSyncStatus('connected');
-                } else if (status === 'disconnected' || status === 'error') {
-                    setSyncStatus('disconnected');
-                }
             },
         });
 
@@ -373,8 +365,7 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             const lastMove = new Date(lastMoveAt).getTime();
             const now = Date.now();
             const elapsed = Math.floor((now - lastMove) / 1000);
-            const remaining = Math.max(0, 60 - elapsed);
-            setSecondsRemaining(remaining);
+            const remaining = Math.max(0, 120 - elapsed);
 
             // Timer expired - end the game
             if (remaining === 0 && room) {
@@ -1352,49 +1343,6 @@ export function Game({ mode, onExit, myTheme, room, isHost = true }: GameProps) 
             </AnimatePresence>
 
             {/* Move Timer and Sync Status (multiplayer only) */}
-            {mode === 'multiplayer' && gamePhase === 'playing' && !state.winner && !gameEndedByInactivity && (
-                <motion.div
-                    className="fixed bottom-6 left-6 z-40 flex items-center gap-3"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                >
-                    {/* Sync status indicator */}
-                    <div
-                        className="w-3 h-3 rounded-full"
-                        style={{
-                            background: syncStatus === 'connected'
-                                ? '#22c55e'
-                                : syncStatus === 'connecting'
-                                ? '#eab308'
-                                : '#ef4444',
-                            boxShadow: syncStatus === 'connected'
-                                ? '0 0 8px rgba(34, 197, 94, 0.6)'
-                                : syncStatus === 'connecting'
-                                ? '0 0 8px rgba(234, 179, 8, 0.6)'
-                                : '0 0 8px rgba(239, 68, 68, 0.6)',
-                        }}
-                        title={`Sync: ${syncStatus}`}
-                    />
-                    {/* Timer */}
-                    <div
-                        className="px-4 py-3 rounded-xl backdrop-blur-sm"
-                        style={{
-                            background: 'rgba(0, 0, 0, 0.4)',
-                            border: `2px solid ${secondsRemaining <= 10 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(255, 255, 255, 0.1)'}`,
-                        }}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span
-                                className={`text-2xl font-mono font-bold ${
-                                    secondsRemaining <= 10 ? 'text-red-400' : 'text-white'
-                                }`}
-                            >
-                                {Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, '0')}
-                            </span>
-                        </div>
-                    </div>
-                </motion.div>
-            )}
 
             {/* Inactivity overlay */}
             <AnimatePresence>
