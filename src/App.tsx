@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getThemeById, type CardTheme } from './themes/themes';
 import { findActiveGame, getOrCreateClientId } from './lib/multiplayer';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Get saved theme from localStorage or default to 'taco-bell'
 function getSavedTheme(): CardTheme {
@@ -266,6 +267,7 @@ function App() {
                     </motion.div>
                 )}
             </AnimatePresence>
+            <SpeedInsights />
         </div>
     );
 }
